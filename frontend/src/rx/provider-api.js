@@ -55,6 +55,16 @@ const api = {
   },
   logout: () => { setToken(null); setSession(null); },
 
+  // Parent-app handoff: pass either a Prognosis bearer (prognosis_token) or
+  // { email, parent_shared_secret } that matches the backend's EMBED_SHARED_SECRET.
+  // Returns the same payload shape as /login and stores the token + session.
+  exchange: async (body) => {
+    const data = await request("/auth/session-exchange", { method: "POST", body });
+    if (data && data.token) setToken(data.token);
+    if (data && data.provider) setSession({ role: "provider", ...data.provider });
+    return data;
+  },
+
   lookupEnrollee: (enrolleeId) => request("/lookup/enrollee", { query: { enrollee_id: enrolleeId } }),
   lookupDiagnoses: (q) => request("/lookup/diagnoses", { query: { q } }),
   searchMedications: (q) => request("/medications/search", { query: { q } }),

@@ -28,6 +28,9 @@ class Settings(BaseSettings):
 
     anthropic_api_key: str | None = None
 
+    # Parent-app handoff (see /auth/session-exchange). Leave blank to disable.
+    embed_shared_secret: str | None = None
+
     cors_origins: str = "*"
 
 

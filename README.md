@@ -171,15 +171,68 @@ See `backend/.env.example`. Summary:
 | `WHATSAPP_BOT_URL`, `WHATSAPP_NUMBER_ACUTE_LAGOS`, `WHATSAPP_NUMBER_CHRONIC` | Future: dispatch on routing |
 | `ANTHROPIC_API_KEY` | Future: AI drug classification for `classification: "auto"` |
 
+## Provider authentication
+
+Two modes are supported out of the box:
+
+### 1. Direct login (standalone portal)
+
+`POST /api/v1/login` proxies to Prognosis `ProviderLogIn` via
+`backend/app/services/prognosis.py`. On success we **upsert** a local
+`providers` row from the Prognosis response and mint an 8-hour JWT. Providers
+never have a password stored here — Prognosis is the source of truth.
+
+If Prognosis is unreachable, `/login` falls back to the local bcrypt-hashed
+provider table, which is what the `seed_provider.py` CLI writes to. Use this
+for PBM admin / break-glass accounts only.
+
+**Tell me these three things about your Prognosis API and I'll tighten the
+adapter** (they live side by side in `services/prognosis.py`):
+
+| Adapter point | What we need |
+| --- | --- |
+| `LOGIN_PATH` | The exact path (currently `/api/Provider/ProviderLogIn`) |
+| `_build_payload` | Request JSON field names (currently `Email` / `Password`) |
+| `_from_response` | Response field names for provider id, name, email, facility |
+
+### 2. Embedded handoff (when the portal lives inside another app)
+
+When a provider already signed into a parent app (e.g. the Leadway Provider
+dashboard) and you embed this portal, the parent app redirects / iframes to
+the portal with credentials in the query string:
+
+```
+https://rxhub-provider-portal.onrender.com/?token=<prognosis-bearer>
+```
+
+or, for a simpler email handoff (only safe if the parent app is on the same
+security boundary):
+
+```
+https://rxhub-provider-portal.onrender.com/?handoff=doctor@clinic.com&secret=<EMBED_SHARED_SECRET>
+```
+
+On boot, the portal hits `POST /api/v1/auth/session-exchange`, gets a JWT,
+scrubs the credentials from the URL, and drops the provider straight onto
+the dashboard. No login screen.
+
+**Status:** the signed-email mode is wired and ready — set
+`EMBED_SHARED_SECRET` on the API and the parent app appends the same secret
+to the link. The Prognosis-token passthrough returns `501` until you give me
+the Prognosis session-verify endpoint (one-line change in
+`services/prognosis.py`).
+
 ## Next wiring steps (in order)
 
-1. **Prognosis enrollee lookup** — `backend/app/api/lookup.py::enrollee` is a
+1. **Prognosis field mapping** — confirm the three adapter points above and
+   I'll trim the guesswork.
+2. **Prognosis enrollee lookup** — `backend/app/api/lookup.py::enrollee` is a
    stub. Replace with an httpx call to `settings.prognosis_base_url`.
-2. **WellaHealth tariff feed** — `backend/app/api/medications.py::search` is a
-   stub. Add a `drug_master` table (or cache) and refresh from WellaHealth.
-3. **WhatsApp dispatch** — on `POST /medication-requests` success, fire a
+3. **WellaHealth tariff feed** — `backend/app/api/medications.py::search` is
+   a stub. Add a `drug_master` table (or cache) and refresh from WellaHealth.
+4. **WhatsApp dispatch** — on `POST /medication-requests` success, fire a
    message to the WhatsApp bot using the channel from `core/routing.py`.
-4. **Anthropic auto-classification** — when `classification_hint == "auto"`
+5. **Anthropic auto-classification** — when `classification_hint == "auto"`
    on an item, call Claude to pick `acute`/`chronic` before persisting.
 
 ## Design provenance
