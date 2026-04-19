@@ -3,8 +3,10 @@ from datetime import datetime, timedelta, timezone
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.db import get_db
 
 bearer = HTTPBearer(auto_error=False)
 
@@ -14,7 +16,10 @@ def create_access_token(subject: str, extra: dict | None = None) -> str:
     payload = {
         "sub": subject,
         "iat": int(now.timestamp()),
+        "nbf": int(now.timestamp()),
         "exp": int((now + timedelta(hours=settings.jwt_ttl_hours)).timestamp()),
+        "iss": settings.jwt_issuer,
+        "aud": settings.jwt_audience,
         **(extra or {}),
     }
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
@@ -22,9 +27,18 @@ def create_access_token(subject: str, extra: dict | None = None) -> str:
 
 def decode_token(token: str) -> dict:
     try:
-        return jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
-    except JWTError as e:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid token: {e}")
+        return jwt.decode(
+            token,
+            settings.jwt_secret,
+            algorithms=[settings.jwt_algorithm],
+            audience=settings.jwt_audience,
+            issuer=settings.jwt_issuer,
+            options={"require": ["exp", "iat", "sub"]},
+        )
+    except JWTError:
+        # Don't echo the underlying jose message — it can leak decoding details
+        # to an attacker probing token validity (expired vs bad sig vs bad aud).
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 
 
 def _require_token(creds: HTTPAuthorizationCredentials | None) -> dict:
@@ -36,18 +50,42 @@ def _require_token(creds: HTTPAuthorizationCredentials | None) -> dict:
     return payload
 
 
-def current_provider(creds: HTTPAuthorizationCredentials = Depends(bearer)) -> dict:
+def _assert_active(payload: dict, db: Session) -> None:
+    """Re-check that the token's subject still resolves to an active provider.
+    Prevents tokens from outliving a deactivation or role change for the full
+    JWT TTL without a revocation list."""
+    from app.models import Provider  # local import to avoid cycle at load time
+
+    pid = payload.get("sub")
+    p = db.get(Provider, pid) if pid else None
+    if not p or not p.is_active:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session no longer valid")
+    # Role may have been downgraded after token issuance.
+    payload["_db_role"] = p.role or "provider"
+
+
+def current_provider(
+    creds: HTTPAuthorizationCredentials = Depends(bearer),
+    db: Session = Depends(get_db),
+) -> dict:
     payload = _require_token(creds)
-    # Admins can call every provider endpoint (e.g. to look at a member on
-    # someone else's behalf); everyone else must be an actual provider.
-    if payload.get("role") not in ("provider", "admin"):
+    _assert_active(payload, db)
+    # Admins can call every provider endpoint; everyone else must be an actual
+    # provider. Trust the DB role over the claim in case role was revoked.
+    effective_role = payload.get("_db_role") or payload.get("role")
+    if effective_role not in ("provider", "admin"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Provider role required")
     return payload
 
 
-def current_admin(creds: HTTPAuthorizationCredentials = Depends(bearer)) -> dict:
+def current_admin(
+    creds: HTTPAuthorizationCredentials = Depends(bearer),
+    db: Session = Depends(get_db),
+) -> dict:
     payload = _require_token(creds)
-    if payload.get("role") != "admin":
+    _assert_active(payload, db)
+    effective_role = payload.get("_db_role") or payload.get("role")
+    if effective_role != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin role required")
     return payload
 

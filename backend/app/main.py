@@ -39,12 +39,18 @@ def create_app() -> FastAPI:
     app = FastAPI(title=settings.app_name, lifespan=lifespan)
 
     origins = [o.strip() for o in (settings.cors_origins or "").split(",") if o.strip()]
+    # Never combine allow_origins=["*"] with allow_credentials=True (CORS spec
+    # forbids it; also makes credential replay easier). If origins are
+    # unspecified we *deny* cross-origin requests entirely — safer default.
+    wildcard = origins == ["*"]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=origins or ["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_origins=origins if origins and not wildcard else [],
+        allow_origin_regex=None,
+        allow_credentials=False if wildcard else True,
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "Accept"],
+        max_age=600,
     )
 
     # Log Pydantic validation errors with a body snippet so we can see
@@ -53,19 +59,16 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(RequestValidationError)
     async def _log_validation_error(request: Request, exc: RequestValidationError):
-        try:
-            body_bytes = await request.body()
-            body_snippet = body_bytes.decode("utf-8")[:4000]
-        except Exception:
-            body_snippet = "(body unavailable)"
-        vlogger.warning("422 on %s %s · errors=%s · body=%s",
-                        request.method, request.url.path,
-                        json.dumps(exc.errors(), default=str)[:1500],
-                        body_snippet)
-        return JSONResponse(
-            status_code=422,
-            content={"detail": exc.errors(), "received": body_snippet[:500]},
+        # Log only structured error locations — never the raw body, which may
+        # carry PHI (enrollee name / DOB / address / meds). Never echo the
+        # body back in the HTTP response either.
+        vlogger.warning(
+            "422 on %s %s · errors=%s",
+            request.method,
+            request.url.path,
+            json.dumps(exc.errors(), default=str)[:1500],
         )
+        return JSONResponse(status_code=422, content={"detail": exc.errors()})
 
     app.include_router(auth.router, prefix=settings.api_prefix)
     app.include_router(lookup.router, prefix=settings.api_prefix)

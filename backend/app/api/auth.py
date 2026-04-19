@@ -1,14 +1,18 @@
+import hashlib
+import hmac
 import logging
+import time
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
+from app.core.config import _is_production, settings
 from app.core.db import get_db
 from app.core.passwords import hash_password, verify_password
-from app.core.security import create_access_token
+from app.core.security import create_access_token, current_admin
 from app.models import Provider
 from app.schemas.provider import LoginIn, LoginOut, ProviderOut, ProviderRegisterIn
 from app.services import prognosis
@@ -107,11 +111,46 @@ async def login(body: LoginIn, db: Session = Depends(get_db)):
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
 
 
-@router.post("/providers/register", response_model=ProviderOut, status_code=status.HTTP_201_CREATED)
+_optional_bearer = HTTPBearer(auto_error=False)
+
+
+def _registration_guard(
+    creds: HTTPAuthorizationCredentials | None = Depends(_optional_bearer),
+    db: Session = Depends(get_db),
+) -> None:
+    """Gate `/providers/register`:
+      * local dev              — open, to bootstrap the first account
+      * any other environment  — admin-only JWT required, and only if at
+        least one admin already exists (break-glass for the first admin is
+        `seed_provider.py` run on the server's shell)
+
+    This prevents public self-registration from minting working provider
+    accounts that can then hit PHI-returning endpoints.
+    """
+    if not _is_production(settings.environment) and settings.environment.strip().lower() in ("local", "dev", "development", ""):
+        return None
+    # Production-ish: must be an authenticated admin.
+    if not creds:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Admin bearer token required")
+    # Reuse current_admin by hand to avoid a chained-dep import cycle at import time.
+    from app.core.security import _require_token, _assert_active  # noqa: SLF001
+    payload = _require_token(creds)
+    _assert_active(payload, db)
+    role = payload.get("_db_role") or payload.get("role")
+    if role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin role required")
+
+
+@router.post(
+    "/providers/register",
+    response_model=ProviderOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(_registration_guard)],
+)
 async def register(body: ProviderRegisterIn, db: Session = Depends(get_db)):
-    """Create a local-only provider (e.g. PBM admin / break-glass). Real
-    providers should be authenticated via Prognosis, which auto-provisions a
-    row on first sign-in. Gate or disable this route before going live.
+    """Create a local provider account. Admin-only in non-local environments.
+    Real providers should authenticate via Prognosis, which auto-provisions
+    a row on first sign-in; this route exists for PBM admin / break-glass.
     """
     existing = db.scalar(select(Provider).where(Provider.email == body.email.lower()))
     if existing:
@@ -136,52 +175,94 @@ async def register(body: ProviderRegisterIn, db: Session = Depends(get_db)):
 
 class ExchangeIn(BaseModel):
     """Payload sent by a parent app (e.g. the Leadway Provider dashboard)
-    that has already authenticated the provider. Prefer `prognosis_token`
-    when the parent app hands us the bearer it got from Prognosis; fall
-    back to a provider email if the parent app will only share identity.
+    that has already authenticated the provider.
+
+    The email-handoff mode requires a short-lived HMAC signature rather
+    than a static shared secret: the parent app computes
+        sig = hex(HMAC-SHA256(EMBED_SHARED_SECRET, f"{email}|{issued_at}|{nonce}"))
+    so leaking a single exchange payload doesn't let an attacker mint
+    future tokens, and we can enforce replay protection server-side.
     """
     prognosis_token: str | None = None
     email: str | None = None
-    parent_shared_secret: str | None = None   # for email-only handoff
+    issued_at: int | None = Field(default=None, description="Unix timestamp when the signature was produced")
+    nonce: str | None = Field(default=None, min_length=8, max_length=128)
+    signature: str | None = Field(default=None, min_length=16, max_length=256)
+
+
+_HANDOFF_REPLAY_WINDOW_SECONDS = 120
+_recent_handoff_nonces: dict[str, float] = {}
+
+
+def _prune_nonces(now: float) -> None:
+    cutoff = now - _HANDOFF_REPLAY_WINDOW_SECONDS * 2
+    stale = [k for k, v in _recent_handoff_nonces.items() if v < cutoff]
+    for k in stale:
+        _recent_handoff_nonces.pop(k, None)
+
+
+def _verify_handoff_signature(email: str, issued_at: int, nonce: str, signature: str) -> bool:
+    """Constant-time check of the HMAC-SHA256 signature over email|issued_at|nonce.
+    Replay protection: reject if issued_at is outside the window or if we've
+    already accepted the nonce within the window.
+    """
+    if not settings.embed_shared_secret:
+        return False
+    now = time.time()
+    if abs(now - int(issued_at)) > _HANDOFF_REPLAY_WINDOW_SECONDS:
+        return False
+    mac = hmac.new(
+        settings.embed_shared_secret.encode(),
+        f"{email}|{issued_at}|{nonce}".encode(),
+        hashlib.sha256,
+    ).hexdigest()
+    if not hmac.compare_digest(mac, signature):
+        return False
+    # Reject replays
+    _prune_nonces(now)
+    if nonce in _recent_handoff_nonces:
+        return False
+    _recent_handoff_nonces[nonce] = now
+    return True
 
 
 @router.post("/auth/session-exchange", response_model=LoginOut)
-async def session_exchange(body: ExchangeIn, db: Session = Depends(get_db)):
-    """Mint a portal JWT for a provider who was authenticated by a parent
-    app. Two supported modes:
+async def session_exchange(body: ExchangeIn, request: Request, db: Session = Depends(get_db)):
+    """Mint a portal JWT for a provider authenticated by a parent app.
 
     1. **Prognosis token passthrough** — parent app hands us the Prognosis
-       bearer it already holds. We verify it against Prognosis and upsert
-       the provider. TODO: implement `prognosis.verify_token()` against the
-       exact Prognosis session-verify endpoint.
+       bearer it already holds. We would verify it against Prognosis and
+       upsert the provider. Unwired; returns 501 until Prognosis provides
+       a session-verify endpoint.
 
-    2. **Signed email handoff** — parent app posts `{email, parent_shared_secret}`
-       where the secret matches our `EMBED_SHARED_SECRET` env var. Use this
-       only when the parent app is on the same security boundary.
+    2. **Signed email handoff** — parent app posts
+           {email, issued_at, nonce, signature}
+       with a fresh HMAC-SHA256 signature over `email|issued_at|nonce`
+       using `EMBED_SHARED_SECRET`. Replay-protected.
     """
-    # Mode 1: Prognosis bearer passthrough — leaves a hook you'll wire once
-    # you know the Prognosis session-verify endpoint. Pseudocode:
-    #
-    #   pp = await prognosis.verify_token(body.prognosis_token)
-    #   p  = _upsert_from_prognosis(db, pp); return _mint(p)
     if body.prognosis_token:
         raise HTTPException(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail=(
-                "Prognosis token passthrough not wired yet — add a verify call "
-                "in services/prognosis.py (see TODO) and uncomment the handler."
-            ),
+            detail="Prognosis token passthrough is not available on this API",
         )
 
     # Mode 2: signed email handoff
-    if body.email and body.parent_shared_secret:
+    if body.email and body.issued_at and body.nonce and body.signature:
         if not settings.embed_shared_secret:
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Embed handoff is disabled on this API")
-        if body.parent_shared_secret != settings.embed_shared_secret:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Bad handoff secret")
-        p = db.scalar(select(Provider).where(Provider.email == body.email.lower()))
+        email = body.email.strip().lower()
+        if not _verify_handoff_signature(email, int(body.issued_at), body.nonce, body.signature):
+            # Uniform 401 — don't leak which field failed.
+            logger.warning(
+                "Rejected handoff for %s from %s", email, request.client.host if request.client else "?"
+            )
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid handoff")
+        p = db.scalar(select(Provider).where(Provider.email == email))
         if not p or not p.is_active:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown provider — sign in once via Prognosis first")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown provider")
         return _mint(p)
 
-    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Provide prognosis_token or (email + parent_shared_secret)")
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Provide prognosis_token or (email + issued_at + nonce + signature)",
+    )
