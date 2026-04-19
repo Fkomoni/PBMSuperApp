@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -11,6 +13,8 @@ from app.models import Provider
 from app.schemas.provider import LoginIn, LoginOut, ProviderOut, ProviderRegisterIn
 from app.services import prognosis
 from app.services.prognosis import PrognosisAuthError, PrognosisProvider
+
+logger = logging.getLogger("rxhub.auth")
 
 router = APIRouter(tags=["auth"])
 
@@ -75,24 +79,32 @@ async def login(body: LoginIn, db: Session = Depends(get_db)):
     PBM ops can still sign in.
     """
     email = body.email.lower()
+    logger.info("login attempt: %s", email)
 
+    prognosis_error: str | None = None
     # 1. Prognosis-first (real providers)
     if settings.prognosis_base_url:
         try:
             pp = await prognosis.provider_login(email, body.password)
             p = _upsert_from_prognosis(db, pp)
+            logger.info("login OK via Prognosis: %s", email)
             return _mint(p)
         except PrognosisAuthError as e:
-            # Propagate invalid credentials; other errors (transport, config)
-            # will fall through to the local path below.
-            msg = str(e).lower()
-            if "invalid" in msg or "password" in msg or "unauthorized" in msg:
-                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e))
+            prognosis_error = str(e)
+            logger.warning("login Prognosis path failed for %s: %s", email, prognosis_error)
+            # Hard credential rejects bubble up immediately. Anything else
+            # (transport, config, unexpected shape) falls to local auth so
+            # admins can still get in when Prognosis is down.
+            msg = prognosis_error.lower()
+            if any(k in msg for k in ("invalid", "password", "unauthorized", "not found", "does not exist")):
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=prognosis_error)
 
     # 2. Local fallback (admin / seeded accounts)
     p = db.scalar(select(Provider).where(Provider.email == email))
     if not p or not p.is_active or not verify_password(body.password, p.password_hash):
+        logger.warning("login fallback rejected for %s (prognosis said: %s)", email, prognosis_error)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
+    logger.info("login OK via local DB: %s", email)
     return _mint(p)
 
 

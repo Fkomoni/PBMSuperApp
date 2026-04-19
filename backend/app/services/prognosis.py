@@ -6,6 +6,7 @@ pydantic-settings.
 from __future__ import annotations
 
 import base64
+import logging
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -13,6 +14,7 @@ import httpx
 
 from app.core.config import settings
 
+logger = logging.getLogger("rxhub.prognosis")
 _TIMEOUT = httpx.Timeout(8.0, connect=4.0)
 
 
@@ -106,6 +108,7 @@ async def provider_login(email: str, password: str) -> PrognosisProvider:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             resp = await client.post(url, json=_build_payload(email, password), headers=headers)
     except httpx.HTTPError as e:
+        logger.warning("ProviderLogIn transport failure for %s: %s", email, e)
         raise PrognosisAuthError(f"Prognosis unreachable: {e}") from e
 
     try:
@@ -113,12 +116,17 @@ async def provider_login(email: str, password: str) -> PrognosisProvider:
     except Exception:
         data = {"raw": resp.text}
 
+    # Log the raw response so we can see exactly what Prognosis returns.
+    # Password is not in the response, but truncate to keep logs manageable.
+    snippet = str(data)[:800]
+    logger.info("ProviderLogIn %s → HTTP %s · body=%s", email, resp.status_code, snippet)
+
     if _is_auth_failure(resp, data):
         msg = (isinstance(data, dict) and (data.get("message") or data.get("Message"))) or "Invalid email or password"
         raise PrognosisAuthError(str(msg))
 
     if resp.status_code >= 400:
-        raise PrognosisAuthError(f"Prognosis error ({resp.status_code})")
+        raise PrognosisAuthError(f"Prognosis error ({resp.status_code}): {snippet[:200]}")
 
     # Some APIs wrap the provider object — try common envelopes.
     payload: dict = data if isinstance(data, dict) else {}
