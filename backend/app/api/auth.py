@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import logging
+import secrets
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -35,10 +36,23 @@ def _to_out(p: Provider) -> ProviderOut:
     )
 
 
+def _disabled_local_password_hash() -> str:
+    """Produce a bcrypt hash the local /login path can never match.
+
+    Previous implementation hashed the literal string
+    ``"!prognosis-managed!"`` — which meant anyone typing that literal as
+    the password would authenticate as ANY Prognosis-provisioned provider.
+    We now hash a cryptographically random secret per row and throw it
+    away, so local password verify always returns False for these rows.
+    """
+    return hash_password(secrets.token_urlsafe(64))
+
+
 def _upsert_from_prognosis(db: Session, pp: PrognosisProvider) -> Provider:
     """Find a local Provider by email (or Prognosis id) and refresh fields
     from what Prognosis returned. Never stores a real password — we set a
-    random hash so local password login silently fails for Prognosis users.
+    per-row random hash so local password login can never match for rows
+    that should be authenticated by Prognosis.
     """
     p = db.scalar(select(Provider).where(Provider.email == pp.email))
     if not p and pp.prognosis_id:
@@ -47,7 +61,7 @@ def _upsert_from_prognosis(db: Session, pp: PrognosisProvider) -> Provider:
         p = Provider(
             email=pp.email,
             name=pp.name,
-            password_hash=hash_password("!prognosis-managed!"),  # local pw disabled
+            password_hash=_disabled_local_password_hash(),
             prognosis_id=pp.prognosis_id or pp.provider_id,
             facility=pp.facility,
             phone=pp.phone,
@@ -63,6 +77,11 @@ def _upsert_from_prognosis(db: Session, pp: PrognosisProvider) -> Provider:
         if pp.phone:
             p.phone = pp.phone
         p.is_active = True
+        # Re-randomize the disabled-login sentinel so even previously
+        # seeded rows (with the old well-known "!prognosis-managed!"
+        # hash) stop accepting that literal as a password on next sign-in.
+        if p.password_hash and verify_password("!prognosis-managed!", p.password_hash):
+            p.password_hash = _disabled_local_password_hash()
     db.commit()
     db.refresh(p)
     return p
@@ -118,7 +137,12 @@ async def login(body: LoginIn, request: Request, db: Session = Depends(get_db)):
 
     # 1. Local DB (always cheap; never depends on Prognosis)
     p = db.scalar(select(Provider).where(Provider.email == email))
-    if p and p.is_active and verify_password(body.password, p.password_hash):
+    # Constant-time behavior: always run bcrypt verify, even when the
+    # email is unknown, so an attacker can't distinguish "no such user"
+    # from "wrong password" by response latency.
+    candidate_hash = p.password_hash if p else _DUMMY_BCRYPT_HASH
+    pw_ok = verify_password(body.password, candidate_hash)
+    if p and p.is_active and pw_ok:
         reset_rate_limit(f"login:email:{email}")
         logger.info("login OK via local DB")
         return _mint(p)
@@ -127,6 +151,13 @@ async def login(body: LoginIn, request: Request, db: Session = Depends(get_db)):
     if settings.prognosis_base_url:
         try:
             pp = await prognosis.provider_login(email, body.password)
+            # Defense in depth: bind the resulting account to the email the
+            # user typed. If Prognosis echoes a different email we refuse,
+            # so a compromised Prognosis response can't pivot us onto a
+            # different provider row.
+            if pp.email and pp.email.strip().lower() != email:
+                logger.warning("Prognosis email mismatch — refusing")
+                raise PrognosisAuthError("email mismatch")
             p = _upsert_from_prognosis(db, pp)
             reset_rate_limit(f"login:email:{email}")
             logger.info("login OK via Prognosis")
@@ -138,6 +169,12 @@ async def login(body: LoginIn, request: Request, db: Session = Depends(get_db)):
             logger.warning("Prognosis auth path failed")
 
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
+
+
+# Fixed dummy bcrypt hash (computed once at import) used to keep the
+# wrong-email code path timing-equivalent to the wrong-password path.
+# Not used for any real authentication — just passed to verify_password.
+_DUMMY_BCRYPT_HASH = hash_password(secrets.token_urlsafe(24))
 
 
 _optional_bearer = HTTPBearer(auto_error=False)

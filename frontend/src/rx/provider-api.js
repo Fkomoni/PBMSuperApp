@@ -94,5 +94,9 @@ const api = {
   },
 };
 
+// Expose only what the other scripts actually call. `setToken`/`setSession`
+// used to live on `window.providerAuth` — they let any script overwrite
+// the stored credentials, which is the wrong default. Mutation now happens
+// exclusively inside `api.login` / `api.logout` / `api.exchange`.
 window.providerApi = api;
-window.providerAuth = { getToken, setToken, getSession, setSession };
+window.providerAuth = { getToken, getSession };
