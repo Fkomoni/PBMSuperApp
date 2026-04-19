@@ -1,5 +1,6 @@
 import json
 import logging
+import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
@@ -25,15 +26,35 @@ async def lifespan(app: FastAPI):
     logger.setLevel(logging.INFO)
     logger.info("=" * 60)
     logger.info("BOOT  %s", BUILD_MARKER)
-    logger.info("BOOT  env=%s  prefix=%s  server_time=%s",
-                settings.environment, settings.api_prefix, datetime.now(timezone.utc).isoformat())
-    logger.info("BOOT  prognosis_base_url=%s  user_set=%s  pass_set=%s  override_set=%s",
-                settings.prognosis_base_url,
-                bool(settings.prognosis_username),
-                bool(settings.prognosis_password),
-                bool(settings.prognosis_auth_header))
+    logger.info(
+        "BOOT  env=%s  prefix=%s  server_time=%s",
+        settings.environment, settings.api_prefix,
+        datetime.now(timezone.utc).isoformat(),
+    )
+    # Intentionally do not log which vendor credentials are set. Boot logs
+    # ship to third-party aggregators and "credentials probably-configured"
+    # is itself an enumeration signal. Check config at first-use instead.
     logger.info("=" * 60)
     yield
+
+
+class RequestIdMiddleware(BaseHTTPMiddleware):
+    """Attach a short request id to every response so operators can trace
+    a single call across logs. Accept a caller-supplied X-Request-ID only
+    if it looks like a UUID — otherwise we generate our own to prevent
+    log injection via crafted headers.
+    """
+
+    async def dispatch(self, request, call_next):
+        incoming = request.headers.get("x-request-id", "")
+        try:
+            rid = str(uuid.UUID(incoming)) if incoming else uuid.uuid4().hex
+        except (ValueError, AttributeError):
+            rid = uuid.uuid4().hex
+        request.state.request_id = rid
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = rid
+        return response
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -72,7 +93,10 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 def create_app() -> FastAPI:
     app = FastAPI(title=settings.app_name, lifespan=lifespan)
 
+    # Order matters: RequestId runs first so SecurityHeaders can see it,
+    # and SecurityHeaders runs before CORS so headers reach the browser.
     app.add_middleware(SecurityHeadersMiddleware)
+    app.add_middleware(RequestIdMiddleware)
 
     origins = [o.strip() for o in (settings.cors_origins or "").split(",") if o.strip()]
     # Never combine allow_origins=["*"] with allow_credentials=True (CORS spec

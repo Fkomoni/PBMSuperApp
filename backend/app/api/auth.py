@@ -127,7 +127,10 @@ async def login(body: LoginIn, request: Request, db: Session = Depends(get_db)):
     ok_email, retry_email = check_and_consume(f"login:email:{email}", limit=10, window_seconds=300)
     if not (ok_ip and ok_email):
         retry = max(retry_ip, retry_email)
-        logger.warning("login rate-limited ip=%s email=%s retry=%ds", ip, email, retry)
+        logger.warning(
+            "login rate-limited ip=%s email-hash=%s retry=%ds",
+            ip, hashlib.sha256(email.encode()).hexdigest()[:10], retry,
+        )
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Too many sign-in attempts. Please wait and try again.",

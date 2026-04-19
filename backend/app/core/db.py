@@ -83,7 +83,17 @@ def _run_migrations() -> None:
             ("treating_doctor", "VARCHAR(255)"),
             ("ref_code",        "VARCHAR(32)"),
         ]
+        import re as _re
+        _IDENT = _re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+        _DDL = _re.compile(r"^[A-Za-z0-9_() ,'=]+$")
         with engine.begin() as conn:
             for col, ddl in to_add:
-                if col not in existing:
-                    conn.execute(text(f"ALTER TABLE medication_requests ADD COLUMN {col} {ddl}"))
+                if col in existing:
+                    continue
+                # Defense-in-depth: migration values are hardcoded above, but
+                # reject anything that isn't a plain identifier / bounded DDL
+                # fragment so a future careless edit can't turn this into
+                # SQL injection.
+                if not _IDENT.match(col) or not _DDL.match(ddl):
+                    raise RuntimeError(f"Refusing unsafe migration DDL: {col} {ddl!r}")
+                conn.execute(text(f"ALTER TABLE medication_requests ADD COLUMN {col} {ddl}"))

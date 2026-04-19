@@ -3,6 +3,7 @@ that splits by routing channel (WellaHealth vs Leadway PBM WhatsApp #1/#2).
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -12,6 +13,8 @@ from sqlalchemy.orm import Session, selectinload
 from app.core.db import get_db
 from app.core.security import current_admin
 from app.models import MedicationRequest, Provider, TrackingEvent
+
+phi_audit = logging.getLogger("rxhub.phi-audit")
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(current_admin)])
 
@@ -56,15 +59,21 @@ def _serialize_request(req: MedicationRequest, provider: Provider | None) -> dic
 async def list_all_requests(
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
-    channel: str | None = Query(default=None, description="wellahealth | leadway_pbm_whatsapp_1 | leadway_pbm_whatsapp_2"),
-    classification: str | None = Query(default=None, description="acute | chronic | mixed"),
-    status_: str | None = Query(default=None, alias="status"),
-    state: str | None = Query(default=None, description="Enrollee state, e.g. Lagos"),
-    provider_id: str | None = Query(default=None),
-    q: str | None = Query(default=None, description="Free-text match on request id / enrollee id / name"),
+    channel: str | None = Query(default=None, max_length=64, description="wellahealth | leadway_pbm_whatsapp_1 | leadway_pbm_whatsapp_2"),
+    classification: str | None = Query(default=None, max_length=32, description="acute | chronic | mixed"),
+    status_: str | None = Query(default=None, alias="status", max_length=32),
+    state: str | None = Query(default=None, max_length=64, description="Enrollee state, e.g. Lagos"),
+    provider_id: str | None = Query(default=None, max_length=64),
+    q: str | None = Query(default=None, max_length=120, description="Free-text match on request id / enrollee id / name"),
     _: dict = Depends(current_admin),
     db: Session = Depends(get_db),
 ):
+    admin_id = (_ or {}).get("sub", "unknown")
+    phi_audit.info(
+        "admin_list_requests admin=%s channel=%s classification=%s status=%s state=%s provider_id=%s has_q=%s",
+        admin_id, channel or "-", classification or "-",
+        status_ or "-", state or "-", provider_id or "-", bool(q),
+    )
     stmt = select(MedicationRequest).options(selectinload(MedicationRequest.items))
     if channel:
         stmt = stmt.where(MedicationRequest.channel == channel)
@@ -107,6 +116,10 @@ async def request_detail(
     _: dict = Depends(current_admin),
     db: Session = Depends(get_db),
 ):
+    phi_audit.info(
+        "admin_request_detail admin=%s request_id=%s",
+        (_ or {}).get("sub", "unknown"), request_id,
+    )
     req = db.get(MedicationRequest, request_id)
     if not req:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Request not found")

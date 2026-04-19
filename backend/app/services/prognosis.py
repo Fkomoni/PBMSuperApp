@@ -100,7 +100,8 @@ async def _fetch_api_token() -> str:
 
     url = settings.prognosis_base_url.rstrip("/") + API_USERS_LOGIN_PATH
     body = _api_users_login_payload(settings.prognosis_username, settings.prognosis_password)
-    logger.info("ApiUsers/Login POST %s (user=%s)", url, settings.prognosis_username)
+    # Don't log the service username — it's a credential identifier.
+    logger.info("ApiUsers/Login POST %s", url)
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             resp = await client.post(url, json=body, headers={"Accept": "application/json", "Content-Type": "application/json"})
