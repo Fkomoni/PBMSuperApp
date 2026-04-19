@@ -204,6 +204,62 @@ async def whatsapp_config():
     }
 
 
+@router.get("/whatsapp/find-auth")
+async def whatsapp_find_auth(
+    api_key: str = Query(..., description="The raw API key value the bot expects"),
+    to: str = Query(default="+2348188626141"),
+):
+    """Try every common auth scheme with the given API key against the
+    configured bot path. Returns the status each returned so we can see
+    which header format the bot accepts without redeploying.
+    """
+    import httpx
+    from app.services import whatsapp as wa
+
+    url = settings.whatsapp_bot_url.rstrip("/") + (settings.whatsapp_send_path or "/send-message")
+    payload = wa._build_payload(to, "RxHub auth probe")  # noqa: SLF001
+
+    variants = [
+        {"X-API-Key": api_key},
+        {"Api-Key": api_key},
+        {"ApiKey":  api_key},
+        {"Authorization": api_key},
+        {"Authorization": f"Bearer {api_key}"},
+        {"Authorization": f"ApiKey {api_key}"},
+        {"Authorization": f"Token {api_key}"},
+        {"x-api-token": api_key},
+        {"api_key":      api_key},
+        {"token":        api_key},
+    ]
+
+    results = []
+    base_hdrs = {"Accept": "application/json", "Content-Type": "application/json"}
+    async with httpx.AsyncClient(timeout=httpx.Timeout(8.0)) as client:
+        for variant in variants:
+            headers = {**base_hdrs, **variant}
+            try:
+                resp = await client.post(url, json=payload, headers=headers)
+                body = resp.text[:300]
+                parsed = None
+                try:
+                    parsed = resp.json()
+                except Exception:
+                    pass
+            except httpx.HTTPError as e:
+                results.append({"header": list(variant.keys())[0], "value_prefix": list(variant.values())[0][:18] + "…", "error": str(e)})
+                continue
+            results.append({
+                "header":       list(variant.keys())[0],
+                "value_prefix": list(variant.values())[0][:18] + "…",
+                "status":       resp.status_code,
+                "body":         parsed or body,
+            })
+
+    # Sort: any 2xx first, then 401s, then others
+    results.sort(key=lambda r: (0 if r.get("status", 0) in range(200, 300) else 1 if r.get("status") == 401 else 2))
+    return {"url": url, "results": results}
+
+
 @router.get("/whatsapp/probe")
 async def whatsapp_probe(
     path: str = Query(default=None, description="Path to POST to; defaults to WHATSAPP_SEND_PATH"),
