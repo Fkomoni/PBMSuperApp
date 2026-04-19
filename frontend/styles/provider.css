@@ -1,0 +1,138 @@
+/* ==========================================================
+   Leadway RxHub — provider-specific additions (layered on rxhub.css)
+   ========================================================== */
+
+/* Stepper */
+.pv-steps {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+  padding: 10px 12px;
+  background: var(--rx-card);
+  border: 1px solid var(--rx-line);
+  border-radius: var(--rx-radius);
+  box-shadow: var(--rx-shadow);
+}
+.pv-step {
+  flex: 1 1 140px;
+  min-width: 120px;
+  display: flex; align-items: center; gap: 10px;
+  background: 0; border: 0; font-family: inherit; text-align: left;
+  padding: 8px 12px; border-radius: 10px;
+  color: var(--rx-muted); font-weight: 600; font-size: 13px;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.pv-step__dot {
+  width: 22px; height: 22px; border-radius: 999px;
+  display: flex; align-items: center; justify-content: center;
+  background: #f2f2f6; color: var(--rx-muted-2);
+  font-size: 11px; font-weight: 800;
+  flex-shrink: 0;
+}
+.pv-step.is-done { color: var(--rx-charcoal); }
+.pv-step.is-done .pv-step__dot { background: var(--rx-green-bg); color: #0d7a35; }
+.pv-step.is-active { color: var(--rx-red); background: #fff5f4; }
+.pv-step.is-active .pv-step__dot { background: var(--rx-red); color: #fff; }
+
+.pv-stepbar {
+  display: flex; justify-content: space-between;
+  margin-top: 20px; padding-top: 18px;
+  border-top: 1px solid var(--rx-line);
+}
+
+/* Chip */
+.pv-chip {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 6px 10px;
+  background: var(--rx-blue-bg); color: #1d4fd8;
+  border: 1px solid #c9dbff;
+  border-radius: 999px;
+  font-size: 12.5px; font-weight: 600;
+}
+.pv-chip button {
+  background: 0; border: 0; padding: 0; cursor: pointer;
+  color: inherit; opacity: .6;
+  display: inline-flex; align-items: center;
+}
+.pv-chip button:hover { opacity: 1; }
+
+/* Drug row */
+.pv-drug {
+  background: #fafafc;
+  border: 1px solid var(--rx-line);
+  border-radius: var(--rx-radius-sm);
+  padding: 14px;
+}
+.pv-drug__head {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 10px;
+}
+.pv-drug__grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+@media (max-width: 700px) {
+  .pv-drug__grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* Drawer (tracking) */
+.pv-drawer {
+  position: fixed; inset: 0; z-index: 100;
+  display: flex; justify-content: flex-end;
+}
+.pv-drawer__scrim {
+  position: absolute; inset: 0;
+  background: rgba(10,10,16,.5); backdrop-filter: blur(2px);
+  animation: pvFade .18s ease;
+}
+.pv-drawer__panel {
+  position: relative;
+  width: min(560px, 96vw);
+  background: #fff;
+  display: flex; flex-direction: column;
+  box-shadow: -20px 0 50px -20px rgba(0,0,0,.3);
+  animation: pvSlide .24s var(--ease, ease);
+  max-height: 100vh;
+}
+.pv-drawer__head {
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--rx-line);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.pv-drawer__body {
+  padding: 18px 20px 28px;
+  overflow: auto;
+  flex: 1;
+}
+
+/* Timeline */
+.pv-timeline {
+  display: flex; flex-direction: column; gap: 16px;
+  padding: 8px 0;
+  position: relative;
+}
+.pv-timeline::before {
+  content: ""; position: absolute;
+  left: 11px; top: 0; bottom: 0; width: 2px;
+  background: var(--rx-line);
+}
+.pv-timeline__step {
+  display: flex; gap: 12px; align-items: flex-start;
+  position: relative; z-index: 1;
+}
+.pv-timeline__dot {
+  width: 24px; height: 24px; border-radius: 999px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--rx-blue-bg); color: var(--rx-blue);
+  border: 2px solid #fff;
+  flex-shrink: 0;
+}
+.pv-timeline__dot.done { background: var(--rx-green-bg); color: #0d7a35; }
+.pv-timeline__dot.warn { background: #fff3ea; color: #b45309; }
+.pv-timeline__dot.err  { background: #fdecef; color: var(--rx-red); }
+
+@keyframes pvFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pvSlide { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
