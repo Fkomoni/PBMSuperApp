@@ -129,13 +129,17 @@ async def send_message(to: str, message: str) -> dict:
 
     url = settings.whatsapp_bot_url.rstrip("/") + _send_path()
     payload = _build_payload(to, message)
+    headers = {"Accept": "application/json", "Content-Type": "application/json"}
+    # Attach API key in the configured header (defaults to "X-API-Key").
+    # If it starts with "Bearer " or "ApiKey ", we send the Authorization
+    # header instead so the caller can pick the right convention.
+    if settings.whatsapp_api_key:
+        hdr = settings.whatsapp_api_key_header or "X-API-Key"
+        headers[hdr] = settings.whatsapp_api_key
     logger.info("WhatsApp POST %s · to=%s · chars=%d", url, to, len(message))
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            resp = await client.post(
-                url, json=payload,
-                headers={"Accept": "application/json", "Content-Type": "application/json"},
-            )
+            resp = await client.post(url, json=payload, headers=headers)
     except httpx.HTTPError as e:
         raise WhatsAppError(f"Bot unreachable: {e}") from e
 

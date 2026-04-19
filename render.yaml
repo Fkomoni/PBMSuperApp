@@ -87,6 +87,12 @@ services:
         value: phone
       - key: WHATSAPP_FIELD_MESSAGE
         value: message
+      # Bot API key — set to the value the Leadway bot expects.
+      # Header name defaults to "X-API-Key"; change if bot uses another.
+      - key: WHATSAPP_API_KEY
+        sync: false
+      - key: WHATSAPP_API_KEY_HEADER
+        value: X-API-Key
       - key: WHATSAPP_NUMBER_ACUTE_LAGOS
         sync: false
       - key: WHATSAPP_NUMBER_CHRONIC

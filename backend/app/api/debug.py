@@ -190,14 +190,17 @@ async def whatsapp_config():
     changing WHATSAPP_SEND_PATH to confirm the new value is live.
     """
     from app.services import whatsapp as wa
-    full_url = settings.whatsapp_bot_url.rstrip("/") + (settings.whatsapp_send_path or "/send")
+    full_url = settings.whatsapp_bot_url.rstrip("/") + (settings.whatsapp_send_path or "/send-message")
     return {
         "bot_url": settings.whatsapp_bot_url,
-        "send_path": settings.whatsapp_send_path or "/send",
+        "send_path": settings.whatsapp_send_path or "/send-message",
         "full_post_url": full_url,
         "number_whatsapp_1_set": bool(settings.whatsapp_number_acute_lagos),
         "number_whatsapp_2_set": bool(settings.whatsapp_number_chronic),
-        "sample_payload": wa._build_payload("+234XXXXXXXXXX", "NEW MEDICATION REQUEST ..."),  # noqa: SLF001
+        "api_key_header":     settings.whatsapp_api_key_header or "X-API-Key",
+        "api_key_set":        bool(settings.whatsapp_api_key),
+        "api_key_length":     len(settings.whatsapp_api_key or ""),
+        "sample_payload":     wa._build_payload("+234XXXXXXXXXX", "NEW MEDICATION REQUEST ..."),  # noqa: SLF001
     }
 
 
@@ -226,10 +229,13 @@ async def whatsapp_probe(
         effective_path = "/" + effective_path
     url = settings.whatsapp_bot_url.rstrip("/") + effective_path
     payload = wa._build_payload(to, message)  # noqa: SLF001
+    headers = {"Accept": "application/json", "Content-Type": "application/json"}
+    if settings.whatsapp_api_key:
+        headers[settings.whatsapp_api_key_header or "X-API-Key"] = settings.whatsapp_api_key
 
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(8.0)) as client:
-            resp = await client.post(url, json=payload, headers={"Accept": "application/json", "Content-Type": "application/json"})
+            resp = await client.post(url, json=payload, headers=headers)
         body_text = resp.text
         try:
             body_parsed = resp.json()

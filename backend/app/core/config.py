@@ -48,6 +48,9 @@ class Settings(BaseSettings):
     # if your bot expects {to, text} or similar.
     whatsapp_field_phone: str = "phone"
     whatsapp_field_message: str = "message"
+    # API key + header name (default X-API-Key, which is the most common).
+    whatsapp_api_key: str | None = None
+    whatsapp_api_key_header: str = "X-API-Key"
     whatsapp_number_acute_lagos: str = ""
     whatsapp_number_chronic: str = ""
 
