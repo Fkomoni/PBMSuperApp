@@ -436,9 +436,13 @@ async def send_email(
     if status_code >= 400:
         msg = (isinstance(data, dict) and (data.get("Message") or data.get("message"))) or f"Prognosis email error {status_code}"
         raise PrognosisAuthError(str(msg))
-    # Prognosis often returns HTTP 200 + plain text "fail: …" or
-    # {"status": false} instead of a non-2xx status. Treat either as
-    # a failed send so the caller sees the real state.
+    # Prognosis returns any of these as "failure" even with HTTP 200:
+    #   - a plain JSON string literal:  "fail: Email sending failed"
+    #     → resp.json() parses that to a Python str, NOT a dict
+    #   - a dict with {"raw": "fail: …"} from our fallback parser
+    #   - a dict with {"status": false} / {"Status": "error"}
+    if isinstance(data, str) and "fail" in data.lower():
+        raise PrognosisAuthError(data.strip())
     if isinstance(data, dict):
         raw = data.get("raw")
         if isinstance(raw, str) and "fail" in raw.lower():

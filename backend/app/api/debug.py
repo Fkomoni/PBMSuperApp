@@ -300,6 +300,81 @@ async def request_state(request_id: str):
         db.close()
 
 
+@router.get("/wellahealth/config")
+async def wellahealth_config():
+    """Show what WellaHealth credentials this instance thinks it has.
+    All values redacted — safe to open from a browser.
+    """
+    import base64
+    cid = settings.wellahealth_client_id or ""
+    cs  = settings.wellahealth_client_secret or ""
+    pc  = settings.wellahealth_partner_code or ""
+    combined = f"{cid}:{cs}"
+    basic_preview = base64.b64encode(combined.encode()).decode()[:12] + "…" if cid and cs else None
+    return {
+        "base_url": settings.wellahealth_base_url,
+        "client_id": _mask(cid),
+        "client_id_length": len(cid),
+        "client_id_has_whitespace": cid != cid.strip() or "\n" in cid or "\r" in cid,
+        "client_secret_set": bool(cs),
+        "client_secret_length": len(cs),
+        "client_secret_has_whitespace": cs != cs.strip() or "\n" in cs or "\r" in cs,
+        "partner_code": _mask(pc),
+        "partner_code_has_whitespace": pc != pc.strip() or "\n" in pc or "\r" in pc,
+        "basic_auth_preview": basic_preview,
+    }
+
+
+@router.get("/wellahealth/ping")
+async def wellahealth_ping():
+    """Fire the lightest Wella endpoint (GET /public/v1/Fulfilments with
+    pageSize=1) and return exactly what we send + what they say back. If
+    auth's broken this is where we'll see the failure clearly.
+    """
+    import base64
+    import httpx
+
+    cid = (settings.wellahealth_client_id or "").strip()
+    cs  = (settings.wellahealth_client_secret or "").strip()
+    pc  = (settings.wellahealth_partner_code or "").strip()
+    if not (cid and cs):
+        return {"ok": False, "error": "WELLAHEALTH_CLIENT_ID or _SECRET not configured"}
+
+    url = settings.wellahealth_base_url.rstrip("/") + "/public/v1/Fulfilments"
+    raw = f"{cid}:{cs}".encode()
+    encoded = base64.b64encode(raw).decode()
+    headers = {
+        "Authorization": f"Basic {encoded}",
+        "Accept": "application/json, text/plain, text/json",
+        "Content-Type": "application/json",
+    }
+    if pc:
+        headers["Partner-Code"] = pc
+        headers["X-Partner-Code"] = pc
+
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(8.0)) as client:
+            resp = await client.get(url, params={"pageIndex": 1, "pageSize": 1}, headers=headers)
+        body_text = resp.text
+        try:
+            body_parsed = resp.json()
+        except Exception:
+            body_parsed = None
+    except httpx.HTTPError as e:
+        return {"ok": False, "error": str(e), "url": url}
+
+    return {
+        "request_url": url,
+        "request_headers": {k: ("<redacted>" if k.lower() == "authorization" else v) for k, v in headers.items()},
+        "basic_token_length": len(encoded),
+        "basic_token_preview": encoded[:12] + "…",
+        "response_status": resp.status_code,
+        "response_headers": dict(resp.headers),
+        "response_body_text": body_text[:2000],
+        "response_body_parsed": body_parsed,
+    }
+
+
 @router.post("/prognosis/refresh-token")
 async def prognosis_refresh_token():
     """Force-exchange the service creds for a new Bearer. Returns the
