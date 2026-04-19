@@ -439,8 +439,14 @@ function ProviderNewRequest({ session, initialMember, onSubmitted, onCancel }) {
     if (!canSubmit) return;
     setSubmitting(true); setSubmitErr(null);
     try {
+      // Use what the provider typed first (always a proper "21000645/0"
+      // string); fall back to Prognosis only if the form is empty. Prognosis
+      // sometimes echoes an internal numeric id — coerce anything to string.
+      const finalEnrolleeId = String(
+        memberId.trim() || member.enrollee_id || member.member_id || ""
+      );
       const payload = {
-        enrollee_id: member.enrollee_id || member.member_id || memberId.trim(),
+        enrollee_id: finalEnrolleeId,
         diagnoses: diagnoses.map(d => ({ code: d.code, name: d.name })),
         items: validDrugs.map(d => {
           const dosage = [d.strength, d.dose, d.frequency].filter(Boolean).join(" ");

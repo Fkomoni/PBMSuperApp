@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 class LoginIn(BaseModel):
@@ -101,6 +101,13 @@ class MedicationRequestIn(BaseModel):
     member_state: str | None = None
     alt_phone: str | None = None
     notes: str | None = None
+
+    @field_validator("enrollee_id", mode="before")
+    @classmethod
+    def _coerce_enrollee_id(cls, v):
+        # Some Prognosis variants return an int for the member id — accept
+        # both so a provider form doesn't silently 422.
+        return str(v) if v is not None else v
 
 
 class MedicationRequestOut(BaseModel):
