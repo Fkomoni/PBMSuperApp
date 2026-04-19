@@ -1,8 +1,9 @@
 from datetime import datetime, timedelta, timezone
 
+import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError, jwt
+from jwt import PyJWTError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -33,11 +34,12 @@ def decode_token(token: str) -> dict:
             algorithms=[settings.jwt_algorithm],
             audience=settings.jwt_audience,
             issuer=settings.jwt_issuer,
-            options={"require": ["exp", "iat", "sub"]},
+            options={"require": ["exp", "iat", "sub", "aud", "iss"]},
         )
-    except JWTError:
-        # Don't echo the underlying jose message — it can leak decoding details
-        # to an attacker probing token validity (expired vs bad sig vs bad aud).
+    except PyJWTError:
+        # Don't echo the underlying error message — it can leak decoding
+        # details to an attacker probing token validity (expired vs bad sig
+        # vs bad aud vs bad iss).
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 
 

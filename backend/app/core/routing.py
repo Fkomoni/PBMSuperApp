@@ -9,15 +9,28 @@ Mixed (acute + chronic)             -> Leadway PBM Super App · WhatsApp #1
 Hormonal/cancer/autoimmune/fertility Lagos   -> Leadway PBM Super App · WhatsApp #1
 Hormonal/cancer/autoimmune/fertility Outside -> Leadway PBM Super App · WhatsApp #2
 """
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Iterable
 
 
 SPECIAL_COHORTS = {"hormonal", "cancer", "autoimmune", "fertility"}
 
+# Nigeria is UTC+1 year-round (no DST). Anchor the weekday/weekend decision
+# to local Lagos time even if the server clock is in UTC — otherwise
+# requests submitted on Friday night (Lagos) would route as "Saturday"
+# (weekend) when the server is UTC, letting a caller nudge routing across
+# channels by submitting at boundary times.
+_LAGOS = timezone(timedelta(hours=1))
+
 
 def classify_bucket(classifications: Iterable[str], state: str | None, now: datetime | None = None) -> dict:
-    now = now or datetime.now()
+    now = now or datetime.now(_LAGOS)
+    # If caller passed a naive datetime, interpret it as Lagos local time;
+    # if tz-aware, convert explicitly.
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=_LAGOS)
+    else:
+        now = now.astimezone(_LAGOS)
     classes = {c.lower() for c in classifications if c}
     is_lagos = (state or "").strip().lower() == "lagos"
     weekday = now.weekday()  # 0 Mon .. 6 Sun

@@ -112,14 +112,18 @@ async def _fetch_api_token() -> str:
     except Exception:
         data = {"raw": resp.text}
 
-    snippet = str(data)[:400]
-    logger.info("ApiUsers/Login → HTTP %s · body=%s", resp.status_code, snippet)
+    logger.info(
+        "ApiUsers/Login → HTTP %s · body_bytes=%d",
+        resp.status_code, len(resp.content or b"")
+    )
 
     if resp.status_code >= 400:
-        raise PrognosisAuthError(f"ApiUsers/Login rejected ({resp.status_code}): {snippet[:200]}")
+        # Error text may echo a credential marker; surface only a short,
+        # generic message.
+        raise PrognosisAuthError(f"ApiUsers/Login rejected ({resp.status_code})")
     bearer = _extract_bearer(data)
     if not bearer:
-        raise PrognosisAuthError(f"ApiUsers/Login returned no token. Body={snippet[:200]}")
+        raise PrognosisAuthError("ApiUsers/Login returned no token")
     return bearer
 
 
@@ -207,14 +211,20 @@ async def _bearer_request(method: str, path: str, *, params: dict | None = None,
             data = resp.json()
         except Exception:
             data = {"raw": resp.text}
-        # Scrub oversized string fields (e.g. base64 picture) for the log
-        # snippet only — the real `data` stays intact.
+        # Never log response bodies from Prognosis — they carry PHI
+        # (enrollee name, DOB, phone, email, address, diagnosis codes).
+        # Only log the status + a tiny set of safe metadata.
         if isinstance(data, dict):
-            loggable = {k: (f"<{len(v)} chars>" if isinstance(v, str) and len(v) > 500 else v)
-                         for k, v in data.items()}
+            keys = sorted(list(data.keys()))[:20]
+            logger.info(
+                "Prognosis %s %s → HTTP %s · keys=%s · body_bytes=%d",
+                method, path, resp.status_code, keys, len(resp.content or b"")
+            )
         else:
-            loggable = data
-        logger.info("Prognosis %s %s → HTTP %s · body=%s", method, path, resp.status_code, str(loggable)[:3000])
+            logger.info(
+                "Prognosis %s %s → HTTP %s · body_bytes=%d",
+                method, path, resp.status_code, len(resp.content or b"")
+            )
         return resp.status_code, data
 
     raise PrognosisAuthError("Prognosis returned 401 twice in a row — check PROGNOSIS_USERNAME/PASSWORD")
@@ -276,14 +286,15 @@ async def provider_login(email: str, password: str) -> PrognosisProvider:
     status_code, data = await _bearer_request(
         "POST", LOGIN_PATH, body=_build_login_payload(email, password)
     )
-    snippet = str(data)[:400]
-    logger.info("ProviderLogIn %s → HTTP %s · body=%s", email, status_code, snippet)
+    # Log only HTTP status — Prognosis response echoes credentials + PHI.
+    logger.info("ProviderLogIn → HTTP %s", status_code)
 
     if _is_credential_reject(status_code, data):
-        msg = (isinstance(data, dict) and (data.get("message") or data.get("Message"))) or "Invalid email or password"
-        raise PrognosisAuthError(str(msg))
+        # Always a uniform message; the upstream error text can enumerate
+        # whether the email exists, which defeats account-probing defenses.
+        raise PrognosisAuthError("Invalid email or password")
     if status_code >= 400:
-        raise PrognosisAuthError(f"Prognosis error ({status_code}): {snippet[:200]}")
+        raise PrognosisAuthError(f"Prognosis error ({status_code})")
 
     return _provider_from_response(data if isinstance(data, dict) else {}, fallback_email=email)
 
@@ -434,9 +445,16 @@ async def send_email(
         "Reference": reference,
         "TransactionType": transaction_type,
     }
-    logger.info("SendEmailAlert → to=%s · subject=%s · body-chars=%d", to, subject, len(body))
+    # Log a SHA-256 fingerprint of the recipient instead of the raw
+    # address — logs are not classified as a permissible PHI disclosure.
+    import hashlib as _hashlib
+    to_fp = _hashlib.sha256((to or "").lower().encode()).hexdigest()[:12]
+    logger.info(
+        "SendEmailAlert → to_fp=%s · subject_len=%d · body_chars=%d",
+        to_fp, len(subject), len(body)
+    )
     status_code, data = await _bearer_request("POST", EMAIL_ALERT_PATH, body=payload)
-    logger.info("SendEmailAlert ← HTTP %s · body=%s", status_code, str(data)[:500])
+    logger.info("SendEmailAlert ← HTTP %s", status_code)
     if status_code >= 400:
         msg = (isinstance(data, dict) and (data.get("Message") or data.get("message"))) or f"Prognosis email error {status_code}"
         raise PrognosisAuthError(str(msg))

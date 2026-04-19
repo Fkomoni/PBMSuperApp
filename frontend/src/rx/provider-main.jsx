@@ -12,31 +12,53 @@ function ProviderApp() {
   rxE(() => { if (window.lucide) window.lucide.createIcons(); }, [stage, page]);
   rxE(() => { localStorage.setItem("rx.provider.page", page); }, [page]);
 
-  // Parent-app handoff: if the URL contains ?token=<prognosis> or
-  // ?handoff=<email>&secret=<shared-secret>, exchange it for a portal JWT
-  // and skip the login screen entirely.
+  // Parent-app handoff: read a *short-lived signed* handoff payload that
+  // the parent app injected into sessionStorage (or window.__handoff__)
+  // before opening this portal. We deliberately do NOT accept the payload
+  // via URL query parameters: the URL ends up in browser history, in the
+  // Referer header of every outbound request, and in access logs, making
+  // static-secret query params trivial to steal.
   rxE(() => {
     if (stage === "app") return;
+
+    let handoff = null;
+    try {
+      const raw = sessionStorage.getItem("rx.handoff");
+      if (raw) handoff = JSON.parse(raw);
+    } catch { /* ignore malformed */ }
+    if (!handoff && window.__handoff__) handoff = window.__handoff__;
+
+    // Back-compat: if the old query format is still present, strip it
+    // from the URL immediately and show a user-facing error. This
+    // prevents the secret from persisting in history + referer headers
+    // on any subsequent navigation.
     const u = new URL(window.location.href);
-    const prognosisToken = u.searchParams.get("token");
-    const handoffEmail = u.searchParams.get("handoff");
-    const handoffSecret = u.searchParams.get("secret");
-    if (!prognosisToken && !(handoffEmail && handoffSecret)) return;
-
-    const body = prognosisToken
-      ? { prognosis_token: prognosisToken }
-      : { email: handoffEmail, parent_shared_secret: handoffSecret };
-
-    providerApi.exchange(body).then(data => {
-      const provider = (data && data.provider) || providerAuth.getSession() || {};
-      setSession({ role: "provider", ...provider });
-      setStage("app");
-      // Scrub the credentials from the address bar.
+    const hadLegacy =
+      u.searchParams.has("token") ||
+      u.searchParams.has("handoff") ||
+      u.searchParams.has("secret");
+    if (hadLegacy) {
       u.searchParams.delete("token");
       u.searchParams.delete("handoff");
       u.searchParams.delete("secret");
       window.history.replaceState({}, "", u.pathname + (u.searchParams.toString() ? "?" + u.searchParams.toString() : ""));
-    }).catch(e => setHandoffErr(e.message || "Automatic sign-in failed"));
+      setHandoffErr("Sign-in via URL is no longer supported. Ask the parent app to use the signed handoff API.");
+      return;
+    }
+
+    if (!handoff || !handoff.email || !handoff.signature) return;
+
+    providerApi.exchange(handoff).then(data => {
+      const provider = (data && data.provider) || providerAuth.getSession() || {};
+      setSession({ role: "provider", ...provider });
+      setStage("app");
+      // One-shot: always clear the handoff blob so it can't be replayed.
+      try { sessionStorage.removeItem("rx.handoff"); } catch {}
+      try { delete window.__handoff__; } catch {}
+    }).catch(e => {
+      try { sessionStorage.removeItem("rx.handoff"); } catch {}
+      setHandoffErr(e.message || "Automatic sign-in failed");
+    });
   }, []);
 
   const onSignedIn = (sess) => { setSession(sess); setStage("app"); };

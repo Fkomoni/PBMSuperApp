@@ -1,7 +1,15 @@
 // Provider API client — wraps the existing Leadway Rx Routing Hub endpoints.
 // Keeps one concern: HTTP + token. No UI. All fetchers return JSON or throw Error.
 
-const API_BASE = window.__API_BASE__ || "https://leadway-rx-api.onrender.com/api/v1";
+// API base must be set by config.js for every deployment. We refuse to fall
+// back to a hardcoded hostname because:
+//   * A lapsed "leadway-rx-api.onrender.com" sub-domain could be re-claimed
+//     by an attacker and silently receive every provider's JWTs + PHI.
+//   * Mis-configured deploys should fail loudly, not cross-contaminate.
+const API_BASE = window.__API_BASE__;
+if (!API_BASE) {
+  throw new Error("frontend/config.js did not set window.__API_BASE__");
+}
 
 const TOKEN_KEY = "rx.provider.token";
 const SESSION_KEY = "rx.provider.session";

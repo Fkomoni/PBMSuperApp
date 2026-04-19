@@ -7,6 +7,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.api import admin, auth, debug, lookup, medications, requests
 from app.core.config import settings
@@ -35,8 +36,43 @@ async def lifespan(app: FastAPI):
     yield
 
 
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Baseline security response headers.
+
+    CSP is intentionally restrictive for the API (which serves JSON, not
+    HTML) so even an accidental HTML response can't exfiltrate via
+    third-party hosts. The portal's static site hosts its own CSP.
+    """
+
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        headers = response.headers
+        headers.setdefault("X-Content-Type-Options", "nosniff")
+        headers.setdefault("X-Frame-Options", "DENY")
+        headers.setdefault("Referrer-Policy", "no-referrer")
+        headers.setdefault(
+            "Permissions-Policy",
+            "geolocation=(), microphone=(), camera=(), payment=()",
+        )
+        headers.setdefault(
+            "Content-Security-Policy",
+            "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
+        )
+        # HSTS only makes sense over HTTPS — Render terminates TLS so this
+        # is always correct in prod. In local dev browsers will ignore it.
+        headers.setdefault(
+            "Strict-Transport-Security",
+            "max-age=63072000; includeSubDomains",
+        )
+        # Cache-Control: API responses carry PHI; never cache by default.
+        headers.setdefault("Cache-Control", "no-store")
+        return response
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title=settings.app_name, lifespan=lifespan)
+
+    app.add_middleware(SecurityHeadersMiddleware)
 
     origins = [o.strip() for o in (settings.cors_origins or "").split(",") if o.strip()]
     # Never combine allow_origins=["*"] with allow_credentials=True (CORS spec

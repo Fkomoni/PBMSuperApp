@@ -122,7 +122,11 @@ async def send_message(to: str, message: str) -> dict:
 
     url = settings.whatsapp_bot_url.rstrip("/") + SEND_PATH
     payload = _build_payload(to, message)
-    logger.info("WhatsApp POST %s · to=%s · chars=%d", url, to, len(message))
+    # Don't log the recipient number (PHI-adjacent); the message body is
+    # always PHI (patient name + diagnoses + meds). Log sizes only.
+    import hashlib as _hashlib
+    to_fp = _hashlib.sha256((to or "").encode()).hexdigest()[:12]
+    logger.info("WhatsApp POST · to_fp=%s · chars=%d", to_fp, len(message))
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             resp = await client.post(
@@ -136,9 +140,9 @@ async def send_message(to: str, message: str) -> dict:
         data: Any = resp.json()
     except Exception:
         data = {"raw": resp.text}
-    logger.info("WhatsApp ← HTTP %s · body=%s", resp.status_code, str(data)[:500])
+    logger.info("WhatsApp ← HTTP %s", resp.status_code)
     if resp.status_code >= 400:
-        raise WhatsAppError(f"Bot error {resp.status_code}: {str(data)[:200]}")
+        raise WhatsAppError(f"Bot error {resp.status_code}")
     return data if isinstance(data, dict) else {"raw": data}
 
 
