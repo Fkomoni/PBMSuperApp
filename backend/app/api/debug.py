@@ -107,6 +107,82 @@ async def prognosis_send_test_email(
         return {"ok": False, "error": str(e), "cache": prognosis.token_cache_info()}
 
 
+@router.get("/prognosis/send-test-email-verbose")
+async def prognosis_send_test_email_verbose(
+    to: str = Query(..., description="Recipient email address"),
+    auth: str = Query(default="bearer", description="bearer | basic | none"),
+):
+    """Show exactly what we send to Prognosis SendEmailAlert + what we get
+    back. Tries different auth schemes so we can see which one the endpoint
+    actually expects.
+    """
+    import base64
+    import httpx
+
+    url = settings.prognosis_base_url.rstrip("/") + prognosis.EMAIL_ALERT_PATH
+    payload = {
+        "EmailAddress": to,
+        "CC": "",
+        "BCC": "",
+        "Subject": "Testint api for Email",
+        "MessageBody": "welcome and This is a test email",
+        "Attachments": None,
+        "Category": "",
+        "UserId": 0,
+        "ProviderId": 0,
+        "ServiceId": 0,
+        "Reference": "",
+        "TransactionType": "",
+    }
+
+    headers = {"Accept": "application/json", "Content-Type": "application/json"}
+    auth_repr = "(none)"
+    if auth == "bearer":
+        bearer = await prognosis._get_bearer()  # noqa: SLF001
+        headers["Authorization"] = f"Bearer {bearer}"
+        auth_repr = f"Bearer {bearer[:10]}…"
+    elif auth == "basic":
+        if not (settings.prognosis_username and settings.prognosis_password):
+            return {"ok": False, "error": "PROGNOSIS_USERNAME/PASSWORD not set"}
+        raw = f"{settings.prognosis_username}:{settings.prognosis_password}".encode()
+        headers["Authorization"] = "Basic " + base64.b64encode(raw).decode()
+        auth_repr = "Basic <user>:<pw>"
+
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
+            resp = await client.post(url, json=payload, headers=headers)
+        body_text = resp.text
+        try:
+            body_parsed = resp.json()
+        except Exception:
+            body_parsed = None
+    except httpx.HTTPError as e:
+        return {"ok": False, "error": str(e), "url": url, "auth": auth_repr}
+
+    # Equivalent cURL so you can copy/run it yourself to compare
+    import json as _json
+    curl_parts = [f"curl -X POST '{url}'"]
+    for k, v in headers.items():
+        if k.lower() == "authorization":
+            curl_parts.append(f"-H '{k}: <redacted>'")
+        else:
+            curl_parts.append(f"-H '{k}: {v}'")
+    curl_parts.append(f"--data '{_json.dumps(payload)}'")
+
+    return {
+        "auth_mode":     auth,
+        "auth_sent":     auth_repr,
+        "request_url":   url,
+        "request_headers": {k: ("<redacted>" if k.lower() == "authorization" else v) for k, v in headers.items()},
+        "request_body":  payload,
+        "curl_equivalent": " \\\n  ".join(curl_parts),
+        "response_status": resp.status_code,
+        "response_headers": dict(resp.headers),
+        "response_body_text":   body_text[:2000],
+        "response_body_parsed": body_parsed,
+    }
+
+
 @router.post("/prognosis/refresh-token")
 async def prognosis_refresh_token():
     """Force-exchange the service creds for a new Bearer. Returns the
