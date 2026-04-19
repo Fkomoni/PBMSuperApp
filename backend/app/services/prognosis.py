@@ -430,16 +430,19 @@ async def send_email(
         "Reference": reference,
         "TransactionType": transaction_type,
     }
-    logger.info("SendEmailAlert → to=%s · subject=%s · ref=%s · category=%s",
-                to, subject, reference, category)
+    logger.info("SendEmailAlert → to=%s · subject=%s · body-chars=%d", to, subject, len(body))
     status_code, data = await _bearer_request("POST", EMAIL_ALERT_PATH, body=payload)
     logger.info("SendEmailAlert ← HTTP %s · body=%s", status_code, str(data)[:500])
     if status_code >= 400:
         msg = (isinstance(data, dict) and (data.get("Message") or data.get("message"))) or f"Prognosis email error {status_code}"
         raise PrognosisAuthError(str(msg))
-    # Prognosis sometimes 200s with status=false in the body; treat that as failure
-    # and surface the reason.
+    # Prognosis often returns HTTP 200 + plain text "fail: …" or
+    # {"status": false} instead of a non-2xx status. Treat either as
+    # a failed send so the caller sees the real state.
     if isinstance(data, dict):
+        raw = data.get("raw")
+        if isinstance(raw, str) and "fail" in raw.lower():
+            raise PrognosisAuthError(raw.strip())
         prognosis_status = data.get("status", data.get("Status"))
         if prognosis_status is False or (isinstance(prognosis_status, str) and prognosis_status.lower() in ("fail", "failed", "error")):
             msg = (data.get("Message") or data.get("message") or f"Email rejected (status={prognosis_status})")

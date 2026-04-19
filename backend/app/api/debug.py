@@ -90,21 +90,18 @@ async def prognosis_enrollee_raw(enrollee_id: str):
 @router.get("/prognosis/send-test-email")
 async def prognosis_send_test_email(
     to: str = Query(..., description="Recipient email address"),
-    subject: str = Query(default="Leadway RxHub — email test", description="Subject line"),
 ):
-    """Fire a real Prognosis SendEmailAlert call so you can confirm delivery.
-    Public — the email is sent from the Leadway no-reply address, body is
-    fixed, so there's no abuse vector beyond the cost of one sent email.
-    Returns the full Prognosis response for diagnosis.
+    """Fire the exact same SendEmailAlert payload you shared as a
+    known-working call, just with the recipient swapped. If this
+    still returns 'fail: Email sending failed', the issue is upstream
+    (Prognosis mail relay, whitelist, etc.) — not our wire format.
     """
-    body = (
-        "This is a test email from the Leadway RxHub provider portal. "
-        "If you received this, the Prognosis SendEmailAlert integration is live.\n\n"
-        "— Leadway RxHub"
-    )
     try:
-        # Match the known-working cURL exactly — empty optional fields.
-        resp = await prognosis.send_email(to=to, subject=subject, body=body)
+        resp = await prognosis.send_email(
+            to=to,
+            subject="Testint api for Email",
+            body="welcome and This is a test email",
+        )
         return {"ok": True, "prognosis_response": resp}
     except prognosis.PrognosisAuthError as e:
         return {"ok": False, "error": str(e), "cache": prognosis.token_cache_info()}
