@@ -19,7 +19,11 @@ from app.core.config import settings
 from app.core.security import current_admin
 from app.services import prognosis
 
-router = APIRouter(prefix="/_debug", tags=["debug"], dependencies=[Depends(current_admin)])
+# The GET config endpoint is public — it only returns redacted metadata so
+# anyone (you, from a browser) can answer "is the deploy live + are the
+# Prognosis env vars set". The test-login endpoint stays admin-gated since
+# it takes a real password and makes a live call.
+router = APIRouter(prefix="/_debug", tags=["debug"])
 
 
 def _mask(value: str | None) -> str:
@@ -39,10 +43,10 @@ def _file_mtime(path: str) -> str:
 
 
 @router.get("/prognosis")
-async def prognosis_config(_: dict = Depends(current_admin)):
+async def prognosis_config():
     """Return what this running instance thinks its Prognosis config is.
     Includes timestamps on key files so you can confirm which commit Render
-    is serving.
+    is serving. Public — contents are fully redacted.
     """
     try:
         headers = prognosis._service_auth_headers()  # noqa: SLF001
@@ -80,11 +84,10 @@ async def prognosis_config(_: dict = Depends(current_admin)):
     }
 
 
-@router.post("/prognosis/test-login")
+@router.post("/prognosis/test-login", dependencies=[Depends(current_admin)])
 async def prognosis_test_login(
     email: str = Query(...),
     password: str = Query(...),
-    _: dict = Depends(current_admin),
 ):
     """Fire a real Prognosis ProviderLogIn call with the creds you pass in
     and return the HTTP status + response body verbatim. Use this to see
