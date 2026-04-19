@@ -16,7 +16,7 @@ from app.schemas.provider import (
     TrackingOut,
 )
 from app.core.config import settings
-from app.services import prognosis, wellahealth
+from app.services import notifications, prognosis, wellahealth
 from app.services.prognosis import PrognosisAuthError
 from app.services.wellahealth import WellaHealthError
 
@@ -181,6 +181,42 @@ async def submit(
                 label="Awaiting retry of WellaHealth dispatch",
                 kind="warn",
                 icon="alert-triangle",
+                note=str(e),
+                at=datetime.now(timezone.utc),
+            ))
+        db.commit()
+        db.refresh(req)
+
+    # ── Member confirmation email (Prognosis SendEmailAlert) ──────────
+    # Copy depends on the routing channel:
+    #   wellahealth → "sent to our third-party partner, pharmacy confirms with OTP"
+    #   anything else → "received, PBM team working on it"
+    # Safe-fail: log + warn event, never block the submission.
+    if settings.prognosis_username and settings.prognosis_password and req.enrollee_email:
+        try:
+            subject, body = notifications.build_for(route.get("channel"), _serialize(req))
+            await prognosis.send_email(
+                to=req.enrollee_email,
+                subject=subject,
+                body=body,
+                category="prescription_submitted",
+                reference=req.id,
+                transaction_type="RxHubSubmit",
+            )
+            db.add(TrackingEvent(
+                request_id=req.id,
+                label=f"Member notified by email ({req.enrollee_email})",
+                kind="done",
+                icon="mail",
+                at=datetime.now(timezone.utc),
+            ))
+        except PrognosisAuthError as e:
+            logger.warning("Member email failed for %s: %s", req.id, e)
+            db.add(TrackingEvent(
+                request_id=req.id,
+                label="Member email not sent (Prognosis)",
+                kind="warn",
+                icon="mail",
                 note=str(e),
                 at=datetime.now(timezone.utc),
             ))

@@ -223,3 +223,63 @@ async def verify_enrollee(enrollee_id: str) -> dict | None:
     if not (payload.get("EnrolleeId") or payload.get("enrollee_id") or payload.get("MemberId") or payload.get("EnrolleeID")):
         return None
     return _enrollee_from_response(payload)
+
+
+# ==================================================================
+# Email via Prognosis — POST /api/EnrolleeProfile/SendEmailAlert
+# ==================================================================
+
+EMAIL_ALERT_PATH = "/api/EnrolleeProfile/SendEmailAlert"
+
+
+async def send_email(
+    *,
+    to: str,
+    subject: str,
+    body: str,
+    cc: str = "",
+    bcc: str = "",
+    category: str = "",
+    reference: str = "",
+    provider_id: int = 0,
+    user_id: int = 0,
+    service_id: int = 0,
+    transaction_type: str = "",
+) -> dict:
+    """Send a transactional email via Prognosis. Raises PrognosisAuthError on
+    transport / auth failure; the caller decides whether to surface or swallow.
+    """
+    if not to:
+        raise PrognosisAuthError("Recipient email is required")
+    url = settings.prognosis_base_url.rstrip("/") + EMAIL_ALERT_PATH
+    headers = _service_auth_headers()
+    payload = {
+        "EmailAddress": to,
+        "CC": cc,
+        "BCC": bcc,
+        "Subject": subject,
+        "MessageBody": body,
+        "Attachments": None,
+        "Category": category,
+        "UserId": user_id,
+        "ProviderId": provider_id,
+        "ServiceId": service_id,
+        "Reference": reference,
+        "TransactionType": transaction_type,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            resp = await client.post(url, json=payload, headers=headers)
+    except httpx.HTTPError as e:
+        raise PrognosisAuthError(f"Prognosis email unreachable: {e}") from e
+
+    try:
+        data = resp.json()
+    except Exception:
+        data = {"raw": resp.text}
+
+    if resp.status_code >= 400:
+        msg = (isinstance(data, dict) and (data.get("Message") or data.get("message"))) or f"Prognosis email error {resp.status_code}"
+        raise PrognosisAuthError(str(msg))
+    return data if isinstance(data, dict) else {"raw": data}
