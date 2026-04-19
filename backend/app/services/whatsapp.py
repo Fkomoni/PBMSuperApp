@@ -21,8 +21,11 @@ _TIMEOUT = httpx.Timeout(10.0, connect=4.0)
 
 # ============================================================
 # ⬇️  ADAPT: path + request shape expected by the bot
+# Path now comes from WHATSAPP_SEND_PATH env var (default "/send").
+# Override per-deploy without a code change.
 # ============================================================
-SEND_PATH = "/send"
+def _send_path() -> str:
+    return settings.whatsapp_send_path or "/send"
 
 
 def _build_payload(to: str, message: str) -> dict:
@@ -120,7 +123,7 @@ async def send_message(to: str, message: str) -> dict:
     if not to:
         raise WhatsAppError("WhatsApp recipient is required")
 
-    url = settings.whatsapp_bot_url.rstrip("/") + SEND_PATH
+    url = settings.whatsapp_bot_url.rstrip("/") + _send_path()
     payload = _build_payload(to, message)
     logger.info("WhatsApp POST %s · to=%s · chars=%d", url, to, len(message))
     try:

@@ -41,6 +41,9 @@ class Settings(BaseSettings):
 
     # ── WhatsApp bot + routed numbers ──────────────────────────────────
     whatsapp_bot_url: str = "https://leadway-whatsapp-bot.onrender.com/api"
+    # POST path appended to the bot base URL (e.g. /send, /send-message,
+    # /messages, /send-whatsapp). Depends on your bot — check its code.
+    whatsapp_send_path: str = "/send"
     whatsapp_number_acute_lagos: str = ""
     whatsapp_number_chronic: str = ""
 

@@ -183,6 +183,68 @@ async def prognosis_send_test_email_verbose(
     }
 
 
+@router.get("/whatsapp/config")
+async def whatsapp_config():
+    """Show the WhatsApp bot URL/path this instance will POST to, plus
+    which env vars are populated. Redacted numbers. Use this after
+    changing WHATSAPP_SEND_PATH to confirm the new value is live.
+    """
+    from app.services import whatsapp as wa
+    full_url = settings.whatsapp_bot_url.rstrip("/") + (settings.whatsapp_send_path or "/send")
+    return {
+        "bot_url": settings.whatsapp_bot_url,
+        "send_path": settings.whatsapp_send_path or "/send",
+        "full_post_url": full_url,
+        "number_whatsapp_1_set": bool(settings.whatsapp_number_acute_lagos),
+        "number_whatsapp_2_set": bool(settings.whatsapp_number_chronic),
+        "sample_payload": wa._build_payload("+234XXXXXXXXXX", "NEW MEDICATION REQUEST ..."),  # noqa: SLF001
+    }
+
+
+@router.get("/whatsapp/probe")
+async def whatsapp_probe(
+    path: str = Query(default="/send", description="Path to POST to, e.g. /send, /send-message, /messages"),
+    to: str = Query(default="+2348188626141"),
+):
+    """POST a one-line test message to an arbitrary path on the bot and
+    return exactly what comes back. Use this to discover the right path
+    without redeploying. Example:
+
+        /api/v1/_debug/whatsapp/probe?path=/send-message
+        /api/v1/_debug/whatsapp/probe?path=/messages
+        /api/v1/_debug/whatsapp/probe?path=/whatsapp
+    """
+    import httpx
+
+    if not settings.whatsapp_bot_url:
+        return {"ok": False, "error": "WHATSAPP_BOT_URL not set"}
+
+    if not path.startswith("/"):
+        path = "/" + path
+    url = settings.whatsapp_bot_url.rstrip("/") + path
+    payload = {"to": to, "message": "RxHub probe — ignore"}
+
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(8.0)) as client:
+            resp = await client.post(url, json=payload, headers={"Accept": "application/json", "Content-Type": "application/json"})
+        body_text = resp.text
+        try:
+            body_parsed = resp.json()
+        except Exception:
+            body_parsed = None
+    except httpx.HTTPError as e:
+        return {"ok": False, "error": str(e), "url": url}
+
+    return {
+        "request_url": url,
+        "request_body": payload,
+        "response_status": resp.status_code,
+        "response_headers": dict(resp.headers),
+        "response_body_text": body_text[:1500],
+        "response_body_parsed": body_parsed,
+    }
+
+
 @router.get("/whatsapp/preview")
 async def whatsapp_preview(channel: str = Query(default="leadway_pbm_whatsapp_1")):
     """Render the exact WhatsApp message the bot would receive for a
