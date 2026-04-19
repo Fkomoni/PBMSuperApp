@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.core.config import _is_production, settings
 from app.core.db import get_db
 from app.core.passwords import hash_password, verify_password
+from app.core.rate_limit import check_and_consume, reset as reset_rate_limit
 from app.core.security import create_access_token, current_admin
 from app.models import Provider
 from app.schemas.provider import LoginIn, LoginOut, ProviderOut, ProviderRegisterIn
@@ -75,8 +76,19 @@ def _mint(p: Provider) -> LoginOut:
     return LoginOut(token=token, expires_in=settings.jwt_ttl_hours * 3600, provider=_to_out(p))
 
 
+def _client_ip(request: Request) -> str:
+    if not request.client:
+        return "unknown"
+    # Prefer X-Forwarded-For when running behind Render's load balancer, but
+    # only trust the first hop; anything else would let attackers spoof keys.
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.client.host
+
+
 @router.post("/login", response_model=LoginOut)
-async def login(body: LoginIn, db: Session = Depends(get_db)):
+async def login(body: LoginIn, request: Request, db: Session = Depends(get_db)):
     """Local-first provider login.
 
     1. If email+password match a local account (admin, PBM staff, or a
@@ -88,12 +100,27 @@ async def login(body: LoginIn, db: Session = Depends(get_db)):
        can take the fast local path.
     """
     email = body.email.lower()
-    logger.info("login attempt: %s", email)
+    ip = _client_ip(request)
+
+    # Rate limit per-IP and per-email (email limit also protects against
+    # credential spraying that rotates source IPs).
+    ok_ip, retry_ip = check_and_consume(f"login:ip:{ip}", limit=20, window_seconds=60)
+    ok_email, retry_email = check_and_consume(f"login:email:{email}", limit=10, window_seconds=300)
+    if not (ok_ip and ok_email):
+        retry = max(retry_ip, retry_email)
+        logger.warning("login rate-limited ip=%s email=%s retry=%ds", ip, email, retry)
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many sign-in attempts. Please wait and try again.",
+            headers={"Retry-After": str(retry)},
+        )
+    logger.info("login attempt: email-hash=%s", hashlib.sha256(email.encode()).hexdigest()[:10])
 
     # 1. Local DB (always cheap; never depends on Prognosis)
     p = db.scalar(select(Provider).where(Provider.email == email))
     if p and p.is_active and verify_password(body.password, p.password_hash):
-        logger.info("login OK via local DB: %s (role=%s)", email, p.role)
+        reset_rate_limit(f"login:email:{email}")
+        logger.info("login OK via local DB")
         return _mint(p)
 
     # 2. Prognosis (real providers)
@@ -101,12 +128,14 @@ async def login(body: LoginIn, db: Session = Depends(get_db)):
         try:
             pp = await prognosis.provider_login(email, body.password)
             p = _upsert_from_prognosis(db, pp)
-            logger.info("login OK via Prognosis: %s", email)
+            reset_rate_limit(f"login:email:{email}")
+            logger.info("login OK via Prognosis")
             return _mint(p)
-        except PrognosisAuthError as e:
-            logger.warning("login Prognosis path failed for %s: %s", email, e)
-            # Fall through to a uniform 401 so we don't leak whether
-            # Prognosis was down vs bad creds to unauthed callers.
+        except PrognosisAuthError:
+            # Uniform 401 below — never leak Prognosis error text (it can
+            # distinguish "no such user" from "wrong password", which aids
+            # account enumeration).
+            logger.warning("Prognosis auth path failed")
 
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
 
@@ -228,6 +257,19 @@ def _verify_handoff_signature(email: str, issued_at: int, nonce: str, signature:
 
 @router.post("/auth/session-exchange", response_model=LoginOut)
 async def session_exchange(body: ExchangeIn, request: Request, db: Session = Depends(get_db)):
+    ok, retry = check_and_consume(
+        f"exchange:ip:{_client_ip(request)}", limit=30, window_seconds=60
+    )
+    if not ok:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many handoff attempts",
+            headers={"Retry-After": str(retry)},
+        )
+    return await _do_session_exchange(body, request, db)
+
+
+async def _do_session_exchange(body: "ExchangeIn", request: Request, db: Session) -> LoginOut:
     """Mint a portal JWT for a provider authenticated by a parent app.
 
     1. **Prognosis token passthrough** — parent app hands us the Prognosis

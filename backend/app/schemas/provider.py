@@ -6,7 +6,10 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 
 class LoginIn(BaseModel):
     email: EmailStr
-    password: str
+    # Enforce a non-empty password at the schema layer so handlers never
+    # see a bare string; real policy (length, rotation, etc.) is enforced
+    # on the Prognosis side for provider accounts.
+    password: str = Field(min_length=1, max_length=256)
 
 
 class ProviderOut(BaseModel):
@@ -26,11 +29,13 @@ class LoginOut(BaseModel):
 
 class ProviderRegisterIn(BaseModel):
     email: EmailStr
-    password: str = Field(min_length=8)
-    name: str = Field(min_length=2)
-    prognosis_id: str | None = None
-    facility: str | None = None
-    phone: str | None = None
+    # Local/admin accounts: require at least 12 characters and cap the
+    # upper bound so we don't hand bcrypt megabyte-sized inputs.
+    password: str = Field(min_length=12, max_length=256)
+    name: str = Field(min_length=2, max_length=255)
+    prognosis_id: str | None = Field(default=None, max_length=64)
+    facility: str | None = Field(default=None, max_length=255)
+    phone: str | None = Field(default=None, max_length=32)
 
 
 class EnrolleeOut(BaseModel):

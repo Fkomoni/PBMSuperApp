@@ -169,11 +169,15 @@ async def _bearer_request(method: str, path: str, *, params: dict | None = None,
     """Call a Prognosis endpoint with the service Bearer. On 401 we refresh
     the token once and retry — transparent to callers.
 
-    `params` values are appended to the URL *without* URL-encoding slashes.
-    Prognosis's enrollee IDs look like "21000645/0" and their server doesn't
-    decode %2F back to /.
+    Enrollee IDs look like ``21000645/0`` and Prognosis does not decode
+    ``%2F`` back to ``/``, so we leave the slash intact ONLY for the single
+    whitelisted ``enrolleeid`` query parameter. Every other param value is
+    fully URL-encoded to prevent path-segment injection into arbitrary
+    Prognosis endpoints via attacker-controlled fields.
     """
     from urllib.parse import quote
+
+    _SLASH_OK_KEYS = {"enrolleeid", "enrolleeID"}
 
     url = settings.prognosis_base_url.rstrip("/") + path
     if params:
@@ -181,8 +185,8 @@ async def _bearer_request(method: str, path: str, *, params: dict | None = None,
         for k, v in params.items():
             if v is None:
                 continue
-            # safe="/" so slashes in enrollee IDs survive intact
-            parts.append(f"{quote(str(k), safe='')}={quote(str(v), safe='/')}")
+            safe = "/" if k in _SLASH_OK_KEYS else ""
+            parts.append(f"{quote(str(k), safe='')}={quote(str(v), safe=safe)}")
         if parts:
             url = url + ("&" if "?" in url else "?") + "&".join(parts)
 
