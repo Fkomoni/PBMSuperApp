@@ -9,8 +9,14 @@ const PROVIDER_NAV = [
   { key: "resources", label: "Resources", icon: "book-open" },
 ];
 
+const ADMIN_NAV = [
+  { key: "admin", label: "Admin console", icon: "shield-check" },
+];
+
 function ProviderShell({ session, onSignOut, page, onNav, children }) {
-  const current = PROVIDER_NAV.find(n => n.key === page) || PROVIDER_NAV[0];
+  const isAdmin = session?.role === "admin";
+  const nav = isAdmin ? [...PROVIDER_NAV, ...ADMIN_NAV] : PROVIDER_NAV;
+  const current = nav.find(n => n.key === page) || nav[0];
   const name = session?.name || session?.full_name || session?.email || "Provider";
   const id = session?.provider_id || session?.prognosis_id || session?.email || "—";
 
@@ -26,12 +32,13 @@ function ProviderShell({ session, onSignOut, page, onNav, children }) {
         </div>
 
         <nav className="mside__nav">
-          {PROVIDER_NAV.map(n => (
+          {nav.map(n => (
             <button key={n.key}
               className={`mside__link ${page === n.key ? "is-on" : ""}`}
               onClick={() => onNav(n.key)}>
               <RxIcon name={n.icon} size={16} />
               <span>{n.label}</span>
+              {n.key === "admin" && <span style={{ marginLeft: "auto", fontSize: 9.5, fontWeight: 800, letterSpacing: ".08em", padding: "2px 7px", borderRadius: 999, background: "rgba(225, 6, 0, .18)", color: "#ff5a55", border: "1px solid rgba(255, 90, 85, .28)", textTransform: "uppercase" }}>Admin</span>}
             </button>
           ))}
         </nav>
@@ -61,7 +68,7 @@ function ProviderShell({ session, onSignOut, page, onNav, children }) {
       <main className="mpage">{children}</main>
 
       <nav className="mbottom">
-        {PROVIDER_NAV.slice(0, 4).map(n => (
+        {nav.slice(0, 4).map(n => (
           <button key={n.key}
             className={`mbottom__item ${page === n.key ? "is-on" : ""}`}
             onClick={() => onNav(n.key)}>

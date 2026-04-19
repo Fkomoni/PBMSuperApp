@@ -51,3 +51,34 @@ def init_db() -> None:
     from app import models  # noqa: F401 — ensure models are imported so Base.metadata is populated
 
     Base.metadata.create_all(bind=engine)
+    _run_migrations()
+
+
+def _run_migrations() -> None:
+    """Tiny idempotent SQL migrations for columns SQLAlchemy's create_all
+    doesn't back-fill on existing tables. Keep each block safe to run every
+    boot; prefer ALTER TABLE IF NOT EXISTS / try-except patterns.
+    """
+    from sqlalchemy import inspect, text
+
+    insp = inspect(engine)
+
+    # providers.role — default to 'provider' so existing rows keep signing in.
+    cols = {c["name"] for c in insp.get_columns("providers")} if insp.has_table("providers") else set()
+    if "role" not in cols and "providers" in insp.get_table_names():
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE providers ADD COLUMN role VARCHAR(16) NOT NULL DEFAULT 'provider'"))
+
+    # medication_requests — enrollee contact fields we added for WellaHealth.
+    if insp.has_table("medication_requests"):
+        existing = {c["name"] for c in insp.get_columns("medication_requests")}
+        to_add = [
+            ("enrollee_phone",  "VARCHAR(32)"),
+            ("enrollee_email",  "VARCHAR(255)"),
+            ("enrollee_dob",    "VARCHAR(32)"),
+            ("enrollee_gender", "VARCHAR(16)"),
+        ]
+        with engine.begin() as conn:
+            for col, ddl in to_add:
+                if col not in existing:
+                    conn.execute(text(f"ALTER TABLE medication_requests ADD COLUMN {col} {ddl}"))

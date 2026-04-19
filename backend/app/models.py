@@ -35,6 +35,8 @@ class Provider(Base):
     prognosis_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     facility: Mapped[str | None] = mapped_column(String(255), nullable=True)
     phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # provider | admin — admins see every request, providers see only their own
+    role: Mapped[str] = mapped_column(String(16), default="provider", nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, nullable=False)
 

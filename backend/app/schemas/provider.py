@@ -15,6 +15,7 @@ class ProviderOut(BaseModel):
     email: EmailStr
     prognosis_id: str | None = None
     facility: str | None = None
+    role: Literal["provider", "admin"] = "provider"
 
 
 class LoginOut(BaseModel):

@@ -22,6 +22,7 @@ def _to_out(p: Provider) -> ProviderOut:
         email=p.email,
         prognosis_id=p.prognosis_id,
         facility=p.facility,
+        role=p.role or "provider",
     )
 
 
@@ -61,7 +62,7 @@ def _upsert_from_prognosis(db: Session, pp: PrognosisProvider) -> Provider:
 def _mint(p: Provider) -> LoginOut:
     token = create_access_token(
         subject=p.id,
-        extra={"role": "provider", "email": p.email, "name": p.name},
+        extra={"role": p.role or "provider", "email": p.email, "name": p.name},
     )
     return LoginOut(token=token, expires_in=settings.jwt_ttl_hours * 3600, provider=_to_out(p))
 

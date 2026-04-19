@@ -78,6 +78,7 @@ function ProviderApp() {
   else if (page === "new") body = <ProviderNewRequest initialMember={startMember} onSubmitted={r => go("requests", { focus: r?.id || r?.request_id })} />;
   else if (page === "requests") body = <ProviderRequests focus={focus} />;
   else if (page === "resources") body = <ProviderResources />;
+  else if (page === "admin" && session?.role === "admin") body = <AdminConsole />;
   else body = <ProviderDashboard session={session} onNav={go} />;
 
   return (

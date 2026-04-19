@@ -76,6 +76,14 @@ const api = {
   getTracking: (id) => request(`/medication-requests/${id}/tracking`),
 
   summary: (days = 30) => request("/reports/summary", { query: { days } }),
+
+  // Admin-only
+  admin: {
+    listRequests: (params = {}) => request("/admin/requests", { query: params }),
+    requestDetail: (id) => request(`/admin/requests/${id}`),
+    summary: (days = 30) => request("/admin/summary", { query: { days } }),
+    listProviders: () => request("/admin/providers"),
+  },
 };
 
 window.providerApi = api;

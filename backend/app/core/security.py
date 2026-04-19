@@ -27,14 +27,28 @@ def decode_token(token: str) -> dict:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid token: {e}")
 
 
-def current_provider(creds: HTTPAuthorizationCredentials = Depends(bearer)) -> dict:
+def _require_token(creds: HTTPAuthorizationCredentials | None) -> dict:
     if not creds:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token")
     payload = decode_token(creds.credentials)
-    if payload.get("role") != "provider":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Provider role required")
     if not payload.get("sub"):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token missing subject")
+    return payload
+
+
+def current_provider(creds: HTTPAuthorizationCredentials = Depends(bearer)) -> dict:
+    payload = _require_token(creds)
+    # Admins can call every provider endpoint (e.g. to look at a member on
+    # someone else's behalf); everyone else must be an actual provider.
+    if payload.get("role") not in ("provider", "admin"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Provider role required")
+    return payload
+
+
+def current_admin(creds: HTTPAuthorizationCredentials = Depends(bearer)) -> dict:
+    payload = _require_token(creds)
+    if payload.get("role") != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin role required")
     return payload
 
 
