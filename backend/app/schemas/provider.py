@@ -100,6 +100,8 @@ class MedicationRequestIn(BaseModel):
     member_email: str | None = None
     member_state: str | None = None
     alt_phone: str | None = None
+    urgency: Literal["routine", "urgent", "stat"] = "routine"
+    treating_doctor: str | None = None
     notes: str | None = None
 
     @field_validator("enrollee_id", mode="before")

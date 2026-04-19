@@ -183,6 +183,78 @@ async def prognosis_send_test_email_verbose(
     }
 
 
+@router.get("/whatsapp/preview")
+async def whatsapp_preview(channel: str = Query(default="leadway_pbm_whatsapp_1")):
+    """Render the exact WhatsApp message the bot would receive for a
+    sample chronic request. Use to sanity-check formatting before
+    submitting real prescriptions.
+    """
+    from app.services import whatsapp as wa
+    sample = {
+        "id": "SAMPLE001",
+        "ref_code": "RX-20260412-48E012",
+        "enrollee_id": "21000645/0",
+        "enrollee_name": "Mbaekwe Nkiru",
+        "enrollee_phone": "08188626141",
+        "enrollee_state": "Lagos",
+        "provider_facility": "PHARMACY BENEFIT PROGRAMME",
+        "treating_doctor": None,
+        "urgency": "routine",
+        "diagnoses": [{"code": "I10", "name": "Essential (primary) hypertension"}],
+        "delivery": {"formatted": "17 Ajanaku St, Opebi, Lagos 101233, Lagos, Nigeria"},
+        "classification": "chronic",
+        "channel": channel,
+        "items": [
+            {"drug_name": "Amlodipine 10mg", "dosage": "2 tablets bd", "duration_days": 5,
+             "classification_hint": "chronic"},
+            {"drug_name": "Lisinopril 5mg", "dosage": "2 tablets bd", "duration_days": None,
+             "classification_hint": "chronic"},
+        ],
+    }
+    return {
+        "channel": channel,
+        "would_send_to": wa.resolve_number(channel) or "(not configured)",
+        "bot_url": settings.whatsapp_bot_url,
+        "message": wa.format_medication_request(sample),
+    }
+
+
+@router.post("/whatsapp/send-test")
+async def whatsapp_send_test(
+    channel: str = Query(default="leadway_pbm_whatsapp_1"),
+    to_override: str | None = Query(default=None, description="Override recipient for testing"),
+):
+    """Fire a sample medication request through the bot for real."""
+    from app.services import whatsapp as wa
+    sample = {
+        "id": "SAMPLE001",
+        "ref_code": "RX-TEST-000001",
+        "enrollee_id": "21000645/0",
+        "enrollee_name": "Mbaekwe Nkiru",
+        "enrollee_phone": "08188626141",
+        "enrollee_state": "Lagos",
+        "provider_facility": "PHARMACY BENEFIT PROGRAMME",
+        "urgency": "routine",
+        "diagnoses": [{"code": "I10", "name": "Essential (primary) hypertension"}],
+        "delivery": {"formatted": "17 Ajanaku St, Opebi, Lagos, Nigeria"},
+        "classification": "chronic",
+        "channel": channel,
+        "items": [
+            {"drug_name": "Amlodipine 10mg", "dosage": "2 tablets bd", "duration_days": 5,
+             "classification_hint": "chronic"},
+        ],
+    }
+    try:
+        msg = wa.format_medication_request(sample)
+        to = to_override or wa.resolve_number(channel)
+        if not to:
+            return {"ok": False, "error": f"No number configured for {channel}"}
+        resp = await wa.send_message(to, msg)
+        return {"ok": True, "to": to, "message": msg, "bot_response": resp}
+    except wa.WhatsAppError as e:
+        return {"ok": False, "error": str(e)}
+
+
 @router.post("/prognosis/refresh-token")
 async def prognosis_refresh_token():
     """Force-exchange the service creds for a new Bearer. Returns the

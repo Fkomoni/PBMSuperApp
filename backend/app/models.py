@@ -65,6 +65,9 @@ class MedicationRequest(Base):
     status: Mapped[str] = mapped_column(String(32), default="submitted", index=True, nullable=False)
     channel: Mapped[str | None] = mapped_column(String(64), nullable=True)
     route: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    urgency: Mapped[str] = mapped_column(String(16), default="routine", nullable=False)  # routine|urgent|stat
+    treating_doctor: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    ref_code: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)  # RX-YYYYMMDD-XXXXXX
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now, nullable=False)

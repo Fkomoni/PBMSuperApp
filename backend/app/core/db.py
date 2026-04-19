@@ -77,6 +77,9 @@ def _run_migrations() -> None:
             ("enrollee_email",  "VARCHAR(255)"),
             ("enrollee_dob",    "VARCHAR(32)"),
             ("enrollee_gender", "VARCHAR(16)"),
+            ("urgency",         "VARCHAR(16) NOT NULL DEFAULT 'routine'"),
+            ("treating_doctor", "VARCHAR(255)"),
+            ("ref_code",        "VARCHAR(32)"),
         ]
         with engine.begin() as conn:
             for col, ddl in to_add:

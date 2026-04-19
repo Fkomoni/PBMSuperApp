@@ -16,9 +16,11 @@ from app.schemas.provider import (
     TrackingOut,
 )
 from app.core.config import settings
-from app.services import notifications, prognosis, wellahealth
+from app.models import Provider
+from app.services import notifications, prognosis, wellahealth, whatsapp
 from app.services.prognosis import PrognosisAuthError
 from app.services.wellahealth import WellaHealthError
+from app.services.whatsapp import WhatsAppError
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +49,7 @@ def _classify_request(items: list[dict]) -> str:
 def _serialize(req: MedicationRequest) -> dict:
     return {
         "id": req.id,
+        "ref_code": req.ref_code,
         "enrollee_id": req.enrollee_id,
         "enrollee_name": req.enrollee_name,
         "enrollee_phone": req.enrollee_phone,
@@ -56,6 +59,8 @@ def _serialize(req: MedicationRequest) -> dict:
         "enrollee_gender": req.enrollee_gender,
         "delivery": req.delivery,
         "alt_phone": req.alt_phone,
+        "urgency": req.urgency,
+        "treating_doctor": req.treating_doctor,
         "notes": req.notes,
         "diagnoses": req.diagnoses,
         "status": req.status,
@@ -114,6 +119,9 @@ async def submit(
     # Provider-supplied values win when Prognosis returned nothing; otherwise
     # Prognosis is authoritative. Keeps legacy member records up to date
     # without letting providers overwrite canonical Prognosis data silently.
+    import uuid as _uuid
+    ref_code = f"RX-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{_uuid.uuid4().hex[:6].upper()}"
+
     req = MedicationRequest(
         provider_id=provider["sub"],
         enrollee_id=payload.enrollee_id,
@@ -122,15 +130,18 @@ async def submit(
         enrollee_email=enrollee.get("email") or payload.member_email,
         enrollee_dob=enrollee.get("dob"),
         enrollee_gender=enrollee.get("gender"),
-        enrollee_state=state or payload.member_state,
+        enrollee_state=payload.member_state or state,
         diagnoses=[d.model_dump() for d in payload.diagnoses],
         delivery=payload.delivery.model_dump() if payload.delivery else None,
         alt_phone=payload.alt_phone,
+        urgency=payload.urgency or "routine",
+        treating_doctor=payload.treating_doctor,
         notes=payload.notes,
         classification=classification,
         status="submitted",
         channel=route.get("channel"),
         route=route.get("label"),
+        ref_code=ref_code,
     )
     req.items = [
         MedicationRequestItem(
@@ -182,6 +193,44 @@ async def submit(
             db.add(TrackingEvent(
                 request_id=req.id,
                 label="Awaiting retry of WellaHealth dispatch",
+                kind="warn",
+                icon="alert-triangle",
+                note=str(e),
+                at=datetime.now(timezone.utc),
+            ))
+        db.commit()
+        db.refresh(req)
+
+    # ── Leadway PBM WhatsApp bot (chronic, mixed, acute Lagos weekday,
+    #    special cohorts). Routes to WhatsApp #1 or #2 per the matrix. ──
+    if route.get("channel") in ("leadway_pbm_whatsapp_1", "leadway_pbm_whatsapp_2"):
+        # Enrich with the provider's facility so the message can show it
+        provider_row = db.get(Provider, provider["sub"])
+        serialized = _serialize(req)
+        serialized["provider_facility"] = (provider_row.facility if provider_row else None) or (provider.get("name") if isinstance(provider, dict) else None)
+        # Split Prognosis' combined name into first/last heuristically so
+        # format_medication_request can render "Surname First" if needed
+        if req.enrollee_name and " " in req.enrollee_name:
+            _parts = req.enrollee_name.strip().split()
+            serialized["enrollee_first_name"] = _parts[0]
+            serialized["enrollee_last_name"] = " ".join(_parts[1:])
+        try:
+            wa_resp = await whatsapp.dispatch_medication_request(serialized, channel=route.get("channel"))
+            db.add(TrackingEvent(
+                request_id=req.id,
+                label=f"Sent to Leadway PBM WhatsApp ({'#1' if route.get('channel') == 'leadway_pbm_whatsapp_1' else '#2'})",
+                kind="done",
+                icon="message-circle",
+                note=str(wa_resp)[:250],
+                at=datetime.now(timezone.utc),
+            ))
+            if req.status == "submitted":
+                req.status = "routed"
+        except WhatsAppError as e:
+            logger.warning("WhatsApp dispatch failed for %s: %s", req.id, e)
+            db.add(TrackingEvent(
+                request_id=req.id,
+                label="Awaiting retry of WhatsApp dispatch",
                 kind="warn",
                 icon="alert-triangle",
                 note=str(e),

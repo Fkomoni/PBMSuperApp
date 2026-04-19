@@ -487,11 +487,9 @@ function ProviderNewRequest({ session, initialMember, onSubmitted, onCancel }) {
         member_email: memberEmail || null,
         member_state: state || null,
         alt_phone: altPhone || null,
-        notes: [
-          treatingDoctor ? `Treating doctor: ${treatingDoctor}` : null,
-          urgency && urgency !== "routine" ? `Urgency: ${urgency.toUpperCase()}` : null,
-          notes || null,
-        ].filter(Boolean).join(" · ") || null,
+        urgency: urgency || "routine",
+        treating_doctor: treatingDoctor || null,
+        notes: notes || null,
       };
       const r = await providerApi.submitRequest(payload);
       onSubmitted && onSubmitted(r);
