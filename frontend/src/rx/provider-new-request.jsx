@@ -325,7 +325,7 @@ function AddressFieldInline({ value, onChange, placeholder }) {
     <div className="ac">
       <input className="rx-input" placeholder={placeholder || "Start typing address..."}
         value={q}
-        onChange={e => { setQ(e.target.value); setOpen(true); if (value) onChange({ formatted: e.target.value }); }}
+        onChange={e => { setQ(e.target.value); setOpen(true); onChange({ formatted: e.target.value, ...(value?.place_id ? {} : {}) }); }}
         onFocus={() => setOpen(true)}
         onBlur={() => setTimeout(() => setOpen(false), 150)} />
       {open && sugs.length > 0 && (
@@ -409,8 +409,10 @@ function ProviderNewRequest({ session, initialMember, onSubmitted, onCancel }) {
       else setPhoneFromProg(false);
       if (data?.email) { setMemberEmail(data.email); setEmailFromProg(true); }
       else setEmailFromProg(false);
-      if (data?.state) setState(data.state);
       if (data?.address && !address) setAddress({ formatted: data.address });
+      // State is intentionally NOT auto-populated — the provider types
+      // where the member will actually pick up / receive the delivery,
+      // which may differ from the member's registered state.
     } catch (e) {
       setMember(null);
       setLookupErr(e.message || "Member not found");
@@ -606,6 +608,12 @@ function ProviderNewRequest({ session, initialMember, onSubmitted, onCancel }) {
         <div className="rx-field" style={{ marginBottom: 0 }}>
           <label>Delivery Address <span style={{ color: "var(--rx-red)" }}>*</span></label>
           <AddressFieldInline value={address} onChange={setAddress} />
+          {address?.formatted && (
+            <div style={{ marginTop: 6, fontSize: 12, color: "var(--rx-green)", display: "flex", alignItems: "center", gap: 4 }}>
+              <RxIcon name="check-circle-2" size={13} /> Address captured
+              {address.place_id ? " (verified via Google)" : " — typed entry"}
+            </div>
+          )}
         </div>
 
         {classifications.length > 0 && (

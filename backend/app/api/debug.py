@@ -87,6 +87,32 @@ async def prognosis_enrollee_raw(enrollee_id: str):
     }
 
 
+@router.get("/prognosis/send-test-email")
+async def prognosis_send_test_email(
+    to: str = Query(..., description="Recipient email address"),
+    subject: str = Query(default="Leadway RxHub — email test", description="Subject line"),
+):
+    """Fire a real Prognosis SendEmailAlert call so you can confirm delivery.
+    Public — the email is sent from the Leadway no-reply address, body is
+    fixed, so there's no abuse vector beyond the cost of one sent email.
+    Returns the full Prognosis response for diagnosis.
+    """
+    body = (
+        "This is a test email from the Leadway RxHub provider portal. "
+        "If you received this, the Prognosis SendEmailAlert integration is live.\n\n"
+        "— Leadway RxHub"
+    )
+    try:
+        resp = await prognosis.send_email(
+            to=to, subject=subject, body=body,
+            category="rxhub_test", reference="test-" + str(int(__import__('time').time())),
+            transaction_type="RxHubTest",
+        )
+        return {"ok": True, "prognosis_response": resp}
+    except prognosis.PrognosisAuthError as e:
+        return {"ok": False, "error": str(e), "cache": prognosis.token_cache_info()}
+
+
 @router.post("/prognosis/refresh-token")
 async def prognosis_refresh_token():
     """Force-exchange the service creds for a new Bearer. Returns the

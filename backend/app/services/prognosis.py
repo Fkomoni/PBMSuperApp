@@ -430,10 +430,20 @@ async def send_email(
         "Reference": reference,
         "TransactionType": transaction_type,
     }
+    logger.info("SendEmailAlert → to=%s · subject=%s · ref=%s · category=%s",
+                to, subject, reference, category)
     status_code, data = await _bearer_request("POST", EMAIL_ALERT_PATH, body=payload)
+    logger.info("SendEmailAlert ← HTTP %s · body=%s", status_code, str(data)[:500])
     if status_code >= 400:
         msg = (isinstance(data, dict) and (data.get("Message") or data.get("message"))) or f"Prognosis email error {status_code}"
         raise PrognosisAuthError(str(msg))
+    # Prognosis sometimes 200s with status=false in the body; treat that as failure
+    # and surface the reason.
+    if isinstance(data, dict):
+        prognosis_status = data.get("status", data.get("Status"))
+        if prognosis_status is False or (isinstance(prognosis_status, str) and prognosis_status.lower() in ("fail", "failed", "error")):
+            msg = (data.get("Message") or data.get("message") or f"Email rejected (status={prognosis_status})")
+            raise PrognosisAuthError(str(msg))
     return data if isinstance(data, dict) else {"raw": data}
 
 
