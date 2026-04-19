@@ -18,11 +18,16 @@ class Settings(BaseSettings):
 
     # ── Prognosis (Leadway legacy) ─────────────────────────────────────
     # Base URL + a service-account username/password used for server-to-server
-    # calls (e.g. enrollee verify). Provider sign-in re-uses the same base URL
-    # but authenticates with the individual provider's own credentials.
+    # calls (e.g. enrollee verify, provider login proxy). Provider sign-in
+    # re-uses the same base URL but authenticates with the individual
+    # provider's own credentials in the request body.
     prognosis_base_url: str = "https://prognosis-api.leadwayhealth.com"
     prognosis_username: str | None = None
     prognosis_password: str | None = None
+    # Escape hatch — if Prognosis doesn't accept `Basic <base64(user:pass)>`,
+    # paste the exact Authorization header value here (e.g. "Bearer eyJ…" or
+    # "ApiKey xyz") and it will be used verbatim on every Prognosis call.
+    prognosis_auth_header: str | None = None
 
     # ── WellaHealth (acute fulfilment partner) ─────────────────────────
     # Basic auth with client_id:client_secret + a Partner-Code header.

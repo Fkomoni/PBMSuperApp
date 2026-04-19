@@ -58,6 +58,10 @@ services:
         sync: false
       - key: PROGNOSIS_PASSWORD
         sync: false
+      # Escape hatch — paste a full Authorization header ("Bearer …", "ApiKey …")
+      # here if Prognosis doesn't accept Basic auth. Takes precedence when set.
+      - key: PROGNOSIS_AUTH_HEADER
+        sync: false
 
       # ── WellaHealth (Basic auth client_id:client_secret + Partner-Code) ──
       - key: WELLAHEALTH_BASE_URL

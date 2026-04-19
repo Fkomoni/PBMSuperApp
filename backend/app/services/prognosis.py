@@ -102,9 +102,16 @@ async def provider_login(email: str, password: str) -> PrognosisProvider:
         raise PrognosisAuthError("Prognosis base URL is not configured")
 
     url = settings.prognosis_base_url.rstrip("/") + LOGIN_PATH
-    # Prognosis requires service-account Basic auth on every call; the
-    # provider's own email/password goes in the body.
+    # Prognosis requires service-account auth on every call; the provider's
+    # own email/password goes in the body.
     headers = _service_auth_headers()
+
+    auth_hdr = headers.get("Authorization", "")
+    # Log enough to confirm we sent SOMETHING without leaking creds:
+    #   scheme ("Basic"/"Bearer"/etc) + first 8 chars of the token
+    scheme = auth_hdr.split(" ", 1)[0] if " " in auth_hdr else "?"
+    token_head = (auth_hdr.split(" ", 1)[1] if " " in auth_hdr else auth_hdr)[:8]
+    logger.info("ProviderLogIn POST %s · Authorization=%s %s…", url, scheme, token_head)
 
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
@@ -146,10 +153,28 @@ async def provider_login(email: str, password: str) -> PrognosisProvider:
 # ==================================================================
 
 def _service_auth_headers() -> dict:
+    # Mode 1: explicit override — paste "Bearer xyz" or "Basic xyz" or
+    # "ApiKey xyz" directly via PROGNOSIS_AUTH_HEADER. Used verbatim.
+    if settings.prognosis_auth_header:
+        auth_value = settings.prognosis_auth_header
+        logger.info(
+            "Using PROGNOSIS_AUTH_HEADER override (%s…)",
+            auth_value.split()[0] if " " in auth_value else "raw",
+        )
+        return {
+            "Authorization": auth_value,
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+
+    # Mode 2: derive Basic auth from username + password.
     if not (settings.prognosis_username and settings.prognosis_password):
-        raise PrognosisAuthError("PROGNOSIS_USERNAME / PROGNOSIS_PASSWORD not configured")
+        raise PrognosisAuthError(
+            "PROGNOSIS_USERNAME / PROGNOSIS_PASSWORD (or PROGNOSIS_AUTH_HEADER) not configured"
+        )
     raw = f"{settings.prognosis_username}:{settings.prognosis_password}".encode()
     encoded = base64.b64encode(raw).decode()
+    logger.info("Using Basic auth for Prognosis (user=%s)", settings.prognosis_username)
     return {
         "Authorization": f"Basic {encoded}",
         "Accept": "application/json",
