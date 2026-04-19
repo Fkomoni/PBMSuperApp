@@ -102,7 +102,9 @@ async def provider_login(email: str, password: str) -> PrognosisProvider:
         raise PrognosisAuthError("Prognosis base URL is not configured")
 
     url = settings.prognosis_base_url.rstrip("/") + LOGIN_PATH
-    headers = {"Accept": "application/json", "Content-Type": "application/json"}
+    # Prognosis requires service-account Basic auth on every call; the
+    # provider's own email/password goes in the body.
+    headers = _service_auth_headers()
 
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
