@@ -113,25 +113,40 @@ Object.assign(window, { rxS, rxE, rxM, rxR, rxF, RX_LOGO, RxIcon, RxBadge, RxSeg
 // ================= SUPPORT CONTACT =================
 // Leadway Health contact centre — surfaced everywhere so members/providers/staff never feel stuck.
 function RxSupport({ compact, dark }) {
-  const bg = dark ? "rgba(255,255,255,.05)" : "#fff5f4";
-  const border = dark ? "1px solid rgba(255,255,255,.08)" : "1px solid #ffd9d6";
-  const muted = dark ? "rgba(255,255,255,.6)" : "var(--rx-muted)";
-  const head = dark ? "#fff" : "var(--rx-charcoal)";
+  const bg = dark ? "rgba(255,255,255,.04)" : "#fff";
+  const border = dark ? "1px solid rgba(255,255,255,.08)" : "1px solid var(--rx-line)";
+  const muted = dark ? "rgba(255,255,255,.58)" : "var(--rx-muted)";
+  const head = dark ? "rgba(255,255,255,.92)" : "var(--rx-charcoal)";
+  const num = dark ? "#fff" : "var(--rx-ink)";
   return (
-    <div style={{ background: bg, border, borderRadius: 12, padding: compact ? "10px 12px" : "12px 14px", display: "flex", gap: 10, alignItems: "flex-start" }}>
-      <div style={{ width: 30, height: 30, flexShrink: 0, borderRadius: 8, background: "var(--rx-red)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <RxIcon name="headphones" size={15} />
+    <div style={{
+      background: bg, border, borderRadius: 10,
+      padding: compact ? "10px 12px" : "12px 14px",
+    }}>
+      <div style={{
+        display: "flex", alignItems: "center", gap: 8,
+        marginBottom: 6,
+      }}>
+        <RxIcon name="headphones" size={13} color={dark ? "#ff8a85" : "var(--rx-red)"} />
+        <span style={{ fontSize: 11, fontWeight: 700, color: head, letterSpacing: ".02em" }}>
+          Contact centre
+        </span>
+        <span style={{
+          marginLeft: "auto",
+          padding: "1px 6px", borderRadius: 4,
+          background: dark ? "rgba(255,90,85,.18)" : "#fdecef",
+          color: dark ? "#ff8a85" : "var(--rx-red)",
+          fontSize: 9, fontWeight: 800, letterSpacing: ".1em",
+        }}>24/7</span>
       </div>
-      <div style={{ minWidth: 0, flex: 1 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
-          <div style={{ fontSize: 11.5, fontWeight: 700, color: head, letterSpacing: ".01em" }}>Contact centre</div>
-          <span style={{ display: "inline-flex", alignItems: "center", padding: "1px 6px", borderRadius: 999, background: "var(--rx-red)", color: "#fff", fontSize: 9, fontWeight: 800, letterSpacing: ".1em" }}>24/7</span>
-        </div>
-        <div style={{ fontSize: 12, color: muted, lineHeight: 1.45, fontVariantNumeric: "tabular-nums" }}>
-          <a href="tel:+2347080627051" style={{ color: head, fontWeight: 700, textDecoration: "none" }}>07080627051</a>
-          <span style={{ opacity: .5, margin: "0 5px" }}>/</span>
-          <a href="tel:+2342012801051" style={{ color: head, fontWeight: 700, textDecoration: "none" }}>02012801051</a>
-        </div>
+      <div style={{
+        fontSize: 12.5, color: num,
+        fontVariantNumeric: "tabular-nums", lineHeight: 1.5,
+        fontWeight: 600,
+      }}>
+        <a href="tel:+2347080627051" style={{ color: num, textDecoration: "none" }}>0708 062 7051</a>
+        <div style={{ fontSize: 10, color: muted, fontWeight: 500, margin: "1px 0" }}>or</div>
+        <a href="tel:+2342012801051" style={{ color: num, textDecoration: "none" }}>0201 280 1051</a>
       </div>
     </div>
   );

@@ -1,9 +1,12 @@
+import json
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.api import admin, auth, debug, lookup, medications, requests
 from app.core.config import settings
@@ -43,6 +46,26 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Log Pydantic validation errors with a body snippet so we can see
+    # exactly which field tripped the 422 on /medication-requests, etc.
+    vlogger = logging.getLogger("rxhub.validation")
+
+    @app.exception_handler(RequestValidationError)
+    async def _log_validation_error(request: Request, exc: RequestValidationError):
+        try:
+            body_bytes = await request.body()
+            body_snippet = body_bytes.decode("utf-8")[:4000]
+        except Exception:
+            body_snippet = "(body unavailable)"
+        vlogger.warning("422 on %s %s · errors=%s · body=%s",
+                        request.method, request.url.path,
+                        json.dumps(exc.errors(), default=str)[:1500],
+                        body_snippet)
+        return JSONResponse(
+            status_code=422,
+            content={"detail": exc.errors(), "received": body_snippet[:500]},
+        )
 
     app.include_router(auth.router, prefix=settings.api_prefix)
     app.include_router(lookup.router, prefix=settings.api_prefix)

@@ -203,7 +203,7 @@ async def _bearer_request(method: str, path: str, *, params: dict | None = None,
             data = resp.json()
         except Exception:
             data = {"raw": resp.text}
-        logger.info("Prognosis %s %s → HTTP %s · body=%s", method, path, resp.status_code, str(data)[:600])
+        logger.info("Prognosis %s %s → HTTP %s · body=%s", method, path, resp.status_code, str(data)[:3000])
         return resp.status_code, data
 
     raise PrognosisAuthError("Prognosis returned 401 twice in a row — check PROGNOSIS_USERNAME/PASSWORD")

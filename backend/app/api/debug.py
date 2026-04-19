@@ -61,6 +61,25 @@ async def prognosis_config():
     }
 
 
+@router.get("/prognosis/enrollee/{enrollee_id:path}")
+async def prognosis_enrollee_raw(enrollee_id: str):
+    """Fetch the RAW Prognosis GetEnrolleeBioDataByEnrolleeID response for a
+    given enrollee ID. Use this to confirm which fields Prognosis actually
+    returns (phone, email, state, etc.) so we can map them correctly.
+
+    Public — read-only, member biographical data.
+    """
+    status_code, body = await prognosis._bearer_request(  # noqa: SLF001
+        "GET", prognosis.ENROLLEE_VERIFY_PATH, params={"enrolleeid": enrollee_id}
+    )
+    return {
+        "enrollee_id": enrollee_id,
+        "status_code": status_code,
+        "raw": body,
+        "mapped": prognosis._enrollee_from_response(body) if isinstance(body, dict) else None,  # noqa: SLF001
+    }
+
+
 @router.post("/prognosis/refresh-token")
 async def prognosis_refresh_token():
     """Force-exchange the service creds for a new Bearer. Returns the

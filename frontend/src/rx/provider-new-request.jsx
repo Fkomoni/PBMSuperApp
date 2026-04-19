@@ -106,18 +106,6 @@ function StateField({ value, onChange }) {
   );
 }
 
-function ProgChip() {
-  return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 4,
-      marginLeft: 8, padding: "1px 7px", borderRadius: 999,
-      background: "var(--rx-green-bg)", color: "#0d7a35",
-      fontSize: 10, fontWeight: 800, letterSpacing: ".05em", textTransform: "uppercase",
-      border: "1px solid #c6ebd3" }}>
-      <RxIcon name="check" size={9} /> From Prognosis
-    </span>
-  );
-}
-
 // ─── Diagnosis autocomplete (inline, no trigger) ────────────────────
 function DiagnosisField({ selected, onAdd, onRemove }) {
   const [q, setQ] = rxS("");
@@ -538,7 +526,7 @@ function ProviderNewRequest({ session, initialMember, onSubmitted, onCancel }) {
 
         <div className="pv-block__row pv-block__row--3">
           <div className="rx-field" style={{ marginBottom: 0 }}>
-            <label>Member Phone <span style={{ color: "var(--rx-red)" }}>*</span>{phoneFromProg && memberPhone ? <ProgChip /> : null}</label>
+            <label>Member Phone <span style={{ color: "var(--rx-red)" }}>*</span></label>
             <input className="rx-input" placeholder="e.g. 08012345678" value={memberPhone}
               onChange={e => { setMemberPhone(e.target.value); setPhoneFromProg(false); }} />
           </div>
@@ -548,7 +536,7 @@ function ProviderNewRequest({ session, initialMember, onSubmitted, onCancel }) {
               onChange={e => setAltPhone(e.target.value)} />
           </div>
           <div className="rx-field" style={{ marginBottom: 0 }}>
-            <label>Member Email{emailFromProg && memberEmail ? <ProgChip /> : null}</label>
+            <label>Member Email</label>
             <input className="rx-input" placeholder={member && !memberEmail ? "Email not on file — add one" : "Optional"}
               value={memberEmail}
               onChange={e => { setMemberEmail(e.target.value); setEmailFromProg(false); }} />
