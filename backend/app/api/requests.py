@@ -52,6 +52,8 @@ def _serialize(req: MedicationRequest) -> dict:
         "ref_code": req.ref_code,
         "enrollee_id": req.enrollee_id,
         "enrollee_name": req.enrollee_name,
+        "enrollee_first_name": req.enrollee_first_name,
+        "enrollee_last_name": req.enrollee_last_name,
         "enrollee_phone": req.enrollee_phone,
         "enrollee_email": req.enrollee_email,
         "enrollee_state": req.enrollee_state,
@@ -129,6 +131,8 @@ async def submit(
         provider_id=provider["sub"],
         enrollee_id=payload.enrollee_id,
         enrollee_name=enrollee.get("name"),
+        enrollee_first_name=enrollee.get("first_name"),
+        enrollee_last_name=enrollee.get("last_name"),
         enrollee_phone=enrollee.get("phone") or payload.member_phone,
         enrollee_email=enrollee.get("email") or payload.member_email,
         enrollee_dob=enrollee.get("dob"),
@@ -211,12 +215,6 @@ async def submit(
         provider_row = db.get(Provider, provider["sub"])
         serialized = _serialize(req)
         serialized["provider_facility"] = (provider_row.facility if provider_row else None) or (provider.get("name") if isinstance(provider, dict) else None)
-        # Split Prognosis' combined name into first/last heuristically so
-        # format_medication_request can render "Surname First" if needed
-        if req.enrollee_name and " " in req.enrollee_name:
-            _parts = req.enrollee_name.strip().split()
-            serialized["enrollee_first_name"] = _parts[0]
-            serialized["enrollee_last_name"] = " ".join(_parts[1:])
         try:
             wa_resp = await whatsapp.dispatch_medication_request(serialized, channel=route.get("channel"))
             db.add(TrackingEvent(

@@ -50,6 +50,8 @@ class MedicationRequest(Base):
     provider_id: Mapped[str] = mapped_column(String(32), ForeignKey("providers.id"), index=True, nullable=False)
     enrollee_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
     enrollee_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    enrollee_first_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    enrollee_last_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
     enrollee_phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
     enrollee_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     enrollee_dob: Mapped[str | None] = mapped_column(String(32), nullable=True)

@@ -77,6 +77,8 @@ def _run_migrations() -> None:
             ("enrollee_email",  "VARCHAR(255)"),
             ("enrollee_dob",    "VARCHAR(32)"),
             ("enrollee_gender", "VARCHAR(16)"),
+            ("enrollee_first_name", "VARCHAR(128)"),
+            ("enrollee_last_name",  "VARCHAR(128)"),
             ("urgency",         "VARCHAR(16) NOT NULL DEFAULT 'routine'"),
             ("treating_doctor", "VARCHAR(255)"),
             ("ref_code",        "VARCHAR(32)"),

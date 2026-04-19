@@ -15,6 +15,21 @@ import httpx
 
 from app.core.config import settings
 
+
+# Normalize a Nigerian phone number to E.164 (e.g. "08188626141" → "2348188626141")
+# so WellaHealth (and any downstream SMS gateway) gets the format they expect.
+def _ng_e164(phone: str | None) -> str:
+    if not phone:
+        return ""
+    digits = re.sub(r"\D", "", phone)
+    if digits.startswith("234"):
+        return digits
+    if digits.startswith("0") and len(digits) >= 11:
+        return "234" + digits[1:]
+    if len(digits) == 10 and digits[0] in "789":
+        return "234" + digits
+    return digits
+
 _TIMEOUT = httpx.Timeout(10.0, connect=4.0)
 
 
@@ -145,7 +160,8 @@ def build_fulfilment_payload(request: dict) -> dict:
         last=request.get("enrollee_last_name"),
     )
 
-    phone = request.get("enrollee_phone") or request.get("alt_phone") or ""
+    raw_phone = request.get("enrollee_phone") or request.get("alt_phone") or ""
+    phone = _ng_e164(raw_phone)
     if not phone:
         raise WellaHealthError("enrollee phone is required for WellaHealth fulfilment")
 
