@@ -203,7 +203,14 @@ async def _bearer_request(method: str, path: str, *, params: dict | None = None,
             data = resp.json()
         except Exception:
             data = {"raw": resp.text}
-        logger.info("Prognosis %s %s → HTTP %s · body=%s", method, path, resp.status_code, str(data)[:3000])
+        # Scrub oversized string fields (e.g. base64 picture) for the log
+        # snippet only — the real `data` stays intact.
+        if isinstance(data, dict):
+            loggable = {k: (f"<{len(v)} chars>" if isinstance(v, str) and len(v) > 500 else v)
+                         for k, v in data.items()}
+        else:
+            loggable = data
+        logger.info("Prognosis %s %s → HTTP %s · body=%s", method, path, resp.status_code, str(loggable)[:3000])
         return resp.status_code, data
 
     raise PrognosisAuthError("Prognosis returned 401 twice in a row — check PROGNOSIS_USERNAME/PASSWORD")
@@ -305,31 +312,44 @@ def _enrollee_from_response(data: dict) -> dict:
 
     flag_raw = pick("Member_RiskFlag", "Member_Flag", "Flag", "RiskFlag") or ""
     return {
-        "enrollee_id":  pick("Member_MemberUniqueID", "Member_EnrolleeId", "EnrolleeId", "EnrolleeID",
-                             "enrolleeid", "MemberId", "enrollee_id"),
+        "enrollee_id":  pick("Member_MemberUniqueID", "Member_EnrolleeId", "Member_enrolleeid",
+                             "EnrolleeId", "EnrolleeID", "enrolleeid", "MemberId", "enrollee_id"),
         "name":         full,
         "first_name":   first,
         "last_name":    last,
-        "title":        pick("Member_MemberTitle", "Title"),
-        "scheme":       pick("Member_SchemeName", "Member_Scheme", "Scheme", "SchemeName", "PlanName"),
+        "title":        pick("Member_MemberTitle", "Member_Title", "Title"),
+        "scheme":       pick("Member_SchemeName", "Member_Scheme", "Member_ProductName",
+                             "Scheme", "SchemeName", "PlanName"),
         "company":      pick("Member_CompanyName", "Member_Company", "Member_Employer",
-                             "CompanyName", "Employer", "Company"),
+                             "Member_EmployerName", "CompanyName", "Employer", "Company"),
         "age":          pick("Member_Age", "Age"),
         "dob":          pick("Member_DateOfBirth", "DateOfBirth", "DOB"),
-        "gender":       pick("Member_Gender", "Gender"),
-        "phone":        pick("Member_PhoneNumber", "Member_Mobile", "Member_Phone",
+        "gender":       pick("Member_Gender", "Member_Sex", "Gender"),
+        "phone":        pick("Member_MemberPhoneNumber", "Member_PhoneNumber", "Member_Mobile",
+                             "Member_Phone", "Member_MobileNumber", "Member_Contact",
                              "PhoneNumber", "Mobile", "Phone"),
-        "email":        pick("Member_Email", "Email"),
-        "state":        pick("Member_State", "Member_StateOfResidence", "State"),
-        "status":       pick("Member_Status", "Member_EnrolleeStatus", "Status", "EnrolleeStatus"),
+        "email":        pick("Member_MemberEmailaddress", "Member_MemberEmail",
+                             "Member_Email", "Member_EmailAddress", "Member_email",
+                             "Email", "EmailAddress"),
+        "state":        pick("Member_State", "Member_StateOfResidence", "Member_MemberState",
+                             "Member_StateDescr", "State", "StateOfResidence"),
+        "address":      pick("Member_MemberAddress", "Member_Address", "Member_Residential_Address",
+                             "Member_HomeAddress", "Address"),
+        "status":       pick("Member_Status", "Member_EnrolleeStatus", "Member_MemberStatus",
+                             "Status", "EnrolleeStatus"),
         "expiry_date":  pick("Member_PlanEndDate", "Member_ValidityEndDate", "Member_ExpiryDate",
-                             "PlanEndDate", "ExpiryDate", "ValidityEndDate"),
+                             "Member_CoverEndDate", "PlanEndDate", "ExpiryDate", "ValidityEndDate"),
         "flag":         (str(flag_raw).lower() if flag_raw else None),
         "flag_reason":  pick("Member_FlagReason", "FlagReason"),
         "vip":          bool(pick("Member_IsVIP", "IsVIP") or False),
         "medications":  pick("ChronicMedications", "medications") or [],
-        # Keep the raw payload so the frontend can surface anything we missed
-        "_raw": data,
+        # Keep a small-field copy of the raw payload so the frontend can
+        # surface anything we missed. Drop oversized strings (picture, etc).
+        "_raw": {
+            k: v for k, v in data.items()
+            if not (isinstance(v, str) and len(v) > 500)
+            and k.lower() not in ("picture", "photo")
+        },
     }
 
 

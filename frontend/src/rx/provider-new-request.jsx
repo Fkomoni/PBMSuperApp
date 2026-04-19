@@ -410,6 +410,7 @@ function ProviderNewRequest({ session, initialMember, onSubmitted, onCancel }) {
       if (data?.email) { setMemberEmail(data.email); setEmailFromProg(true); }
       else setEmailFromProg(false);
       if (data?.state) setState(data.state);
+      if (data?.address && !address) setAddress({ formatted: data.address });
     } catch (e) {
       setMember(null);
       setLookupErr(e.message || "Member not found");

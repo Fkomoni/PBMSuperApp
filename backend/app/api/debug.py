@@ -64,18 +64,25 @@ async def prognosis_config():
 @router.get("/prognosis/enrollee/{enrollee_id:path}")
 async def prognosis_enrollee_raw(enrollee_id: str):
     """Fetch the RAW Prognosis GetEnrolleeBioDataByEnrolleeID response for a
-    given enrollee ID. Use this to confirm which fields Prognosis actually
-    returns (phone, email, state, etc.) so we can map them correctly.
-
+    given enrollee ID. Strips the giant base64 picture payload so you can
+    actually read the fields that matter. Returns {status_code, keys, raw, mapped}.
     Public — read-only, member biographical data.
     """
     status_code, body = await prognosis._bearer_request(  # noqa: SLF001
         "GET", prognosis.ENROLLEE_VERIFY_PATH, params={"enrolleeid": enrollee_id}
     )
+    raw = body
+    if isinstance(raw, dict):
+        raw = {
+            k: (f"<base64 ({len(v)} chars)>" if isinstance(v, str) and len(v) > 500 else v)
+            for k, v in raw.items()
+        }
+    keys = sorted(list(body.keys())) if isinstance(body, dict) else None
     return {
         "enrollee_id": enrollee_id,
         "status_code": status_code,
-        "raw": body,
+        "keys": keys,
+        "raw": raw,
         "mapped": prognosis._enrollee_from_response(body) if isinstance(body, dict) else None,  # noqa: SLF001
     }
 
