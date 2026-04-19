@@ -10,7 +10,20 @@ from app.core.config import settings
 
 
 def _url() -> str:
-    url = settings.database_url or "sqlite:///./rxhub.db"
+    """Return the SQLAlchemy-shaped DB URL.
+
+    Render (and most Postgres providers) hand out URLs starting with
+    `postgres://` or `postgresql://`. SQLAlchemy reads those as psycopg2,
+    which we don't ship. We installed psycopg v3, so force the driver.
+    Defaults to SQLite for local dev when DATABASE_URL is unset.
+    """
+    url = settings.database_url
+    if not url:
+        return "sqlite:///./rxhub.db"
+    if url.startswith("postgres://"):
+        url = "postgresql+psycopg://" + url[len("postgres://"):]
+    elif url.startswith("postgresql://") and not url.startswith("postgresql+"):
+        url = "postgresql+psycopg://" + url[len("postgresql://"):]
     return url
 
 
