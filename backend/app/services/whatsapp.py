@@ -29,11 +29,15 @@ def _send_path() -> str:
 
 
 def _build_payload(to: str, message: str) -> dict:
-    # Common shapes across WhatsApp bots:
-    #   {to, message}   (simple)
-    #   {phone, text}   (meta-cloud style)
-    # If your bot wants something else, edit this one function.
-    return {"to": to, "message": message}
+    # Field names come from settings so you can swap them per bot:
+    #   Leadway bot default:  {"phone": ..., "message": ...}
+    #   Meta cloud style:     {"phone": ..., "text": ...}
+    #   Twilio-alike:         {"to": ..., "message": ...}
+    # Override via WHATSAPP_FIELD_PHONE / WHATSAPP_FIELD_MESSAGE env vars.
+    return {
+        (settings.whatsapp_field_phone or "phone"): to,
+        (settings.whatsapp_field_message or "message"): message,
+    }
 # ============================================================
 
 

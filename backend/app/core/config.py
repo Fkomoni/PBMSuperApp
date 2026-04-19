@@ -43,7 +43,11 @@ class Settings(BaseSettings):
     whatsapp_bot_url: str = "https://leadway-whatsapp-bot.onrender.com/api"
     # POST path appended to the bot base URL (e.g. /send, /send-message,
     # /messages, /send-whatsapp). Depends on your bot — check its code.
-    whatsapp_send_path: str = "/send"
+    whatsapp_send_path: str = "/send-message"
+    # Body field names — Leadway bot expects {phone, message}. Override
+    # if your bot expects {to, text} or similar.
+    whatsapp_field_phone: str = "phone"
+    whatsapp_field_message: str = "message"
     whatsapp_number_acute_lagos: str = ""
     whatsapp_number_chronic: str = ""
 

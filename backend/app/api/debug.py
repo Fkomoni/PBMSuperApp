@@ -203,26 +203,29 @@ async def whatsapp_config():
 
 @router.get("/whatsapp/probe")
 async def whatsapp_probe(
-    path: str = Query(default="/send", description="Path to POST to, e.g. /send, /send-message, /messages"),
+    path: str = Query(default=None, description="Path to POST to; defaults to WHATSAPP_SEND_PATH"),
     to: str = Query(default="+2348188626141"),
+    message: str = Query(default="RxHub probe - ignore"),
 ):
-    """POST a one-line test message to an arbitrary path on the bot and
-    return exactly what comes back. Use this to discover the right path
-    without redeploying. Example:
+    """POST a one-line test message to a path on the bot and return what
+    comes back. Uses the configured field names (WHATSAPP_FIELD_PHONE /
+    WHATSAPP_FIELD_MESSAGE). Example:
 
+        /api/v1/_debug/whatsapp/probe                       (uses configured path)
         /api/v1/_debug/whatsapp/probe?path=/send-message
-        /api/v1/_debug/whatsapp/probe?path=/messages
-        /api/v1/_debug/whatsapp/probe?path=/whatsapp
+        /api/v1/_debug/whatsapp/probe?path=/messages&to=+234...
     """
     import httpx
+    from app.services import whatsapp as wa
 
     if not settings.whatsapp_bot_url:
         return {"ok": False, "error": "WHATSAPP_BOT_URL not set"}
 
-    if not path.startswith("/"):
-        path = "/" + path
-    url = settings.whatsapp_bot_url.rstrip("/") + path
-    payload = {"to": to, "message": "RxHub probe — ignore"}
+    effective_path = path or settings.whatsapp_send_path or "/send-message"
+    if not effective_path.startswith("/"):
+        effective_path = "/" + effective_path
+    url = settings.whatsapp_bot_url.rstrip("/") + effective_path
+    payload = wa._build_payload(to, message)  # noqa: SLF001
 
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(8.0)) as client:

@@ -80,10 +80,13 @@ services:
       # ── WhatsApp bot + routed numbers ────────────────────────────
       - key: WHATSAPP_BOT_URL
         value: https://leadway-whatsapp-bot.onrender.com/api
-      # POST path appended to the bot base URL — depends on your bot:
-      #   /send, /send-message, /messages, /whatsapp, etc.
       - key: WHATSAPP_SEND_PATH
-        value: /send
+        value: /send-message
+      # Body shape the bot expects. Leadway bot uses {phone, message}.
+      - key: WHATSAPP_FIELD_PHONE
+        value: phone
+      - key: WHATSAPP_FIELD_MESSAGE
+        value: message
       - key: WHATSAPP_NUMBER_ACUTE_LAGOS
         sync: false
       - key: WHATSAPP_NUMBER_CHRONIC
