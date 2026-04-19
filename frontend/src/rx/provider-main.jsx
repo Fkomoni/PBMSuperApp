@@ -4,7 +4,7 @@
 function ProviderApp() {
   const [stage, setStage] = rxS(() => providerAuth.getToken() && providerAuth.getSession() ? "app" : "hub");
   const [session, setSession] = rxS(() => providerAuth.getSession());
-  const [page, setPage] = rxS(() => localStorage.getItem("rx.provider.page") || "dashboard");
+  const [page, setPage] = rxS(() => localStorage.getItem("rx.provider.page") || "new");
   const [focus, setFocus] = rxS(null);
   const [startMember, setStartMember] = rxS(null);
   const [handoffErr, setHandoffErr] = rxS(null);
@@ -45,7 +45,7 @@ function ProviderApp() {
     setSession(null);
     setStage("hub");
     localStorage.removeItem("rx.provider.page");
-    setPage("dashboard");
+    setPage("new");
   };
 
   const go = (p, opts) => {
@@ -75,15 +75,41 @@ function ProviderApp() {
   let body;
   if (page === "dashboard") body = <ProviderDashboard session={session} onNav={go} />;
   else if (page === "enrollee") body = <ProviderEnrollee onStartRequest={m => go("new", { member: m })} />;
-  else if (page === "new") body = <ProviderNewRequest initialMember={startMember} onSubmitted={r => go("requests", { focus: r?.id || r?.request_id })} />;
+  else if (page === "new") body = <ProviderNewRequest session={session} initialMember={startMember}
+    onSubmitted={r => go("requests", { focus: r?.id || r?.request_id })}
+    onCancel={() => go("requests")} />;
   else if (page === "requests") body = <ProviderRequests focus={focus} />;
   else if (page === "admin" && session?.role === "admin") body = <AdminConsole />;
-  else body = <ProviderDashboard session={session} onNav={go} />;
+  else body = <ProviderNewRequest session={session} initialMember={startMember}
+    onSubmitted={r => go("requests", { focus: r?.id || r?.request_id })} />;
 
   return (
     <ProviderShell session={session} onSignOut={onSignOut} page={page} onNav={go}>
+      <PageTabs session={session} page={page} onNav={go} />
       {body}
     </ProviderShell>
+  );
+}
+
+function PageTabs({ session, page, onNav }) {
+  const tabs = [
+    { key: "new",       label: "New Rx Request" },
+    { key: "requests",  label: "Request History" },
+  ];
+  if (session?.role === "admin") {
+    tabs.push({ key: "admin", label: "Review Queue" });
+    tabs.push({ key: "reports", label: "Reports" });
+  }
+  return (
+    <div className="pv-tabs">
+      {tabs.map(t => (
+        <button key={t.key}
+          className={`pv-tab ${page === t.key ? "is-on" : ""}`}
+          onClick={() => onNav(t.key)}>
+          {t.label}
+        </button>
+      ))}
+    </div>
   );
 }
 

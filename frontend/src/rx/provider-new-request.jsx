@@ -1,32 +1,4 @@
-// New prescription — 4-step wizard:
-//   1. Member (enrollee ID lookup)
-//   2. Diagnosis (ICD-10 autocomplete, multi-select)
-//   3. Medications (drug search, dosage, quantity, duration, classification hint)
-//   4. Delivery + review (Google Places address, phone, notes, preview routing, submit)
-
-const STEPS = [
-  { key: "member", label: "Member", icon: "user-round" },
-  { key: "dx", label: "Diagnosis", icon: "clipboard-pen" },
-  { key: "meds", label: "Medications", icon: "pill" },
-  { key: "review", label: "Delivery & review", icon: "send" },
-];
-
-function Stepper({ step, onStep }) {
-  return (
-    <div className="pv-steps">
-      {STEPS.map((s, i) => {
-        const done = i < step;
-        const active = i === step;
-        return (
-          <button key={s.key} className={`pv-step ${done ? "is-done" : ""} ${active ? "is-active" : ""}`} onClick={() => i <= step && onStep(i)}>
-            <span className="pv-step__dot">{done ? <RxIcon name="check" size={12} /> : <RxIcon name={s.icon} size={12} />}</span>
-            <span className="pv-step__label">{s.label}</span>
-          </button>
-        );
-      })}
-    </div>
-  );
-}
+// New Medication Request — one-pager. Five numbered sections + sticky footer.
 
 function useDebouncedQuery(value, ms = 250) {
   const [v, setV] = rxS(value);
@@ -34,7 +6,44 @@ function useDebouncedQuery(value, ms = 250) {
   return v;
 }
 
-function DiagnosisPicker({ selected, onAdd, onRemove }) {
+const DOSE_OPTIONS = [
+  "1 tablet", "2 tablets", "1 capsule", "2 capsules",
+  "5 ml", "10 ml", "15 ml", "20 ml",
+  "1 puff", "2 puffs", "1 sachet", "1 drop", "2 drops",
+  "1 suppository", "1 application",
+];
+const FREQUENCY_OPTIONS = [
+  { v: "OD",  l: "Once daily (OD)" },
+  { v: "BD",  l: "Twice daily (BD)" },
+  { v: "TDS", l: "Three times daily (TDS)" },
+  { v: "QID", l: "Four times daily (QID)" },
+  { v: "PRN", l: "As needed (PRN)" },
+  { v: "NOCTE", l: "At night (nocte)" },
+  { v: "MANE",  l: "In the morning (mane)" },
+  { v: "STAT",  l: "Immediately (stat)" },
+  { v: "Q8H",   l: "Every 8 hours" },
+  { v: "Q12H",  l: "Every 12 hours" },
+];
+const DURATION_OPTIONS = [
+  { v: 3,   l: "3 days" },
+  { v: 5,   l: "5 days" },
+  { v: 7,   l: "7 days" },
+  { v: 10,  l: "10 days" },
+  { v: 14,  l: "14 days" },
+  { v: 21,  l: "21 days" },
+  { v: 30,  l: "1 month (30 days)" },
+  { v: 60,  l: "2 months" },
+  { v: 90,  l: "3 months (chronic)" },
+  { v: 180, l: "6 months" },
+];
+const URGENCY_OPTIONS = [
+  { v: "routine", l: "Routine" },
+  { v: "urgent",  l: "Urgent" },
+  { v: "stat",    l: "STAT (same day)" },
+];
+
+// ─── Diagnosis autocomplete (inline, no trigger) ────────────────────
+function DiagnosisField({ selected, onAdd, onRemove }) {
   const [q, setQ] = rxS("");
   const [items, setItems] = rxS([]);
   const [loading, setLoading] = rxS(false);
@@ -52,34 +61,32 @@ function DiagnosisPicker({ selected, onAdd, onRemove }) {
   }, [dq]);
 
   return (
-    <div>
-      <RxField label="Search ICD-10 diagnosis">
-        <div className="ac">
-          <input className="rx-input" value={q} placeholder="e.g. hypertension, E11.9, asthma"
-            onChange={e => setQ(e.target.value)} />
-          {q.length >= 2 && (items.length > 0 || loading) && (
-            <div className="ac__drop">
-              {loading && <div className="ac__item" style={{ color: "var(--rx-muted)" }}>Searching…</div>}
-              {items.slice(0, 10).map((d, i) => {
-                const code = d.code || d.icd10 || d.id;
-                const name = d.name || d.description || d.label;
-                const already = selected.some(s => (s.code || s.id) === code);
-                return (
-                  <div key={code || i} className="ac__item"
-                    style={already ? { opacity: .5, cursor: "not-allowed" } : undefined}
-                    onMouseDown={() => { if (!already) { onAdd({ code, name }); setQ(""); setItems([]); } }}>
-                    <div className="k">{name}</div>
-                    <div className="v"><span className="num">{code}</span>{already ? " · already added" : ""}</div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </RxField>
-
+    <div className="rx-field">
+      <label>Diagnosis <span style={{ color: "var(--rx-red)" }}>*</span></label>
+      <div className="ac">
+        <input className="rx-input" value={q} placeholder="Type to search diagnoses..."
+          onChange={e => setQ(e.target.value)} />
+        {q.length >= 2 && (items.length > 0 || loading) && (
+          <div className="ac__drop">
+            {loading && <div className="ac__item" style={{ color: "var(--rx-muted)" }}>Searching…</div>}
+            {items.slice(0, 10).map((d, i) => {
+              const code = d.code || d.icd10 || d.id;
+              const name = d.name || d.description || d.label;
+              const already = selected.some(s => (s.code || s.id) === code);
+              return (
+                <div key={code || i} className="ac__item"
+                  style={already ? { opacity: .5, cursor: "not-allowed" } : undefined}
+                  onMouseDown={() => { if (!already) { onAdd({ code, name }); setQ(""); setItems([]); } }}>
+                  <div className="k">{name}</div>
+                  <div className="v"><span className="num">{code}</span>{already ? " · already added" : ""}</div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
       {selected.length > 0 && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 4 }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
           {selected.map((d, i) => (
             <span key={i} className="pv-chip">
               <span className="num" style={{ fontWeight: 700 }}>{d.code}</span>
@@ -93,7 +100,8 @@ function DiagnosisPicker({ selected, onAdd, onRemove }) {
   );
 }
 
-function DrugRow({ item, onChange, onRemove }) {
+// ─── One medication card ─────────────────────────────────────────────
+function MedicationCard({ index, item, onChange, onRemove, showRemove }) {
   const [q, setQ] = rxS("");
   const [items, setItems] = rxS([]);
   const [open, setOpen] = rxS(false);
@@ -114,6 +122,7 @@ function DrugRow({ item, onChange, onRemove }) {
       drug_id: d.id || d.drug_id || d.code,
       drug_name: d.name || d.brand_name || d.drug_name,
       generic: d.generic || d.generic_name,
+      strength: d.strength || _parseStrength(d.name || d.brand_name || d.drug_name || "") || item.strength,
       unit_price: d.unit_price || d.tariff || d.price,
       classification: d.classification || d.route || item.classification,
     });
@@ -121,84 +130,97 @@ function DrugRow({ item, onChange, onRemove }) {
   };
 
   return (
-    <div className="pv-drug">
-      <div className="pv-drug__head">
-        {!item.drug_name ? (
-          <div className="ac" style={{ flex: 1 }}>
-            <input className="rx-input" placeholder="Search drug name (e.g. Amlodipine 10mg)"
-              value={q}
-              onChange={e => { setQ(e.target.value); setOpen(true); }}
-              onFocus={() => setOpen(true)}
-              onBlur={() => setTimeout(() => setOpen(false), 150)} />
-            {open && items.length > 0 && (
-              <div className="ac__drop">
-                {items.slice(0, 10).map((d, i) => (
-                  <div key={i} className="ac__item" onMouseDown={() => pick(d)}>
-                    <div className="k">{d.name || d.brand_name || d.drug_name}</div>
-                    <div className="v">
-                      {d.generic || d.generic_name || ""}
-                      {d.unit_price ? <span className="num"> · ₦{Number(d.unit_price).toLocaleString()}</span> : null}
-                      {d.classification ? ` · ${d.classification}` : ""}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="ac__selected" style={{ marginTop: 0, flex: 1 }}>
-            <RxIcon name="pill" size={16} />
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 700 }}>{item.drug_name}</div>
-              {item.generic && <div style={{ fontSize: 11.5, fontWeight: 500, opacity: .75 }}>{item.generic}</div>}
-            </div>
-            <button onClick={() => onChange({ ...item, drug_id: null, drug_name: "", generic: "", unit_price: null })}
-              style={{ background: 0, border: 0, color: "inherit", cursor: "pointer", padding: 4 }}>
-              <RxIcon name="x" size={14} />
-            </button>
-          </div>
-        )}
-
-        <button className="rx-btn rx-btn--ghost rx-btn--sm" onClick={onRemove}
-          style={{ marginLeft: 8, width: 36, padding: 0, height: 40 }}>
-          <RxIcon name="trash-2" size={15} />
+    <div className="pv-med">
+      <div className="pv-med__label">Medication {index + 1}</div>
+      {showRemove && (
+        <button className="pv-med__remove" onClick={onRemove} aria-label="Remove medication">
+          <RxIcon name="trash-2" size={14} />
         </button>
-      </div>
-
-      <div className="pv-drug__grid">
-        <RxField label="Dosage">
-          <input className="rx-input" placeholder="e.g. 10mg OD"
-            value={item.dosage || ""} onChange={e => onChange({ ...item, dosage: e.target.value })} />
-        </RxField>
-        <RxField label="Quantity">
-          <input className="rx-input" type="number" min={1} placeholder="30"
-            value={item.quantity || ""} onChange={e => onChange({ ...item, quantity: e.target.value })} />
-        </RxField>
-        <RxField label="Duration (days)">
-          <input className="rx-input" type="number" min={1} placeholder="30"
-            value={item.duration_days || ""} onChange={e => onChange({ ...item, duration_days: e.target.value })} />
-        </RxField>
-        <RxField label="Classification">
-          <RxSeg
-            options={[{ v: "acute", l: "Acute" }, { v: "chronic", l: "Chronic" }, { v: "auto", l: "Auto" }]}
-            value={item.classification || "auto"}
-            onChange={v => onChange({ ...item, classification: v })} />
-        </RxField>
-      </div>
-
-      {item.unit_price && item.quantity && (
-        <div style={{ marginTop: 10, fontSize: 12.5, color: "var(--rx-muted)" }}>
-          Tariff: ₦{Number(item.unit_price).toLocaleString()} × {item.quantity} =
-          <strong style={{ color: "var(--rx-ink)", marginLeft: 4 }} className="num">
-            ₦{(Number(item.unit_price) * Number(item.quantity)).toLocaleString()}
-          </strong>
-        </div>
       )}
+
+      <div className="pv-block__row pv-block__row--2" style={{ marginBottom: 14 }}>
+        <div className="rx-field" style={{ marginBottom: 0 }}>
+          <label>Drug Name <span style={{ color: "var(--rx-red)" }}>*</span></label>
+          {!item.drug_name ? (
+            <div className="ac">
+              <input className="rx-input" placeholder="Type to search medications..."
+                value={q}
+                onChange={e => { setQ(e.target.value); setOpen(true); }}
+                onFocus={() => setOpen(true)}
+                onBlur={() => setTimeout(() => setOpen(false), 150)} />
+              {open && items.length > 0 && (
+                <div className="ac__drop">
+                  {items.slice(0, 10).map((d, i) => (
+                    <div key={i} className="ac__item" onMouseDown={() => pick(d)}>
+                      <div className="k">{d.name || d.brand_name || d.drug_name}</div>
+                      <div className="v">
+                        {d.generic || d.generic_name || ""}
+                        {d.unit_price ? <span className="num"> · ₦{Number(d.unit_price).toLocaleString()}</span> : null}
+                        {d.classification ? ` · ${d.classification}` : ""}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="ac__selected" style={{ marginTop: 0 }}>
+              <RxIcon name="pill" size={16} />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 700 }}>{item.drug_name}</div>
+                {item.generic && <div style={{ fontSize: 11.5, fontWeight: 500, opacity: .75 }}>{item.generic}</div>}
+              </div>
+              <button onClick={() => onChange({ ...item, drug_id: null, drug_name: "", generic: "", unit_price: null })}
+                style={{ background: 0, border: 0, color: "inherit", cursor: "pointer", padding: 4 }}>
+                <RxIcon name="x" size={14} />
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div className="rx-field" style={{ marginBottom: 0 }}>
+          <label>Strength</label>
+          <input className="rx-input" placeholder="Auto-filled when you select a drug"
+            value={item.strength || ""} onChange={e => onChange({ ...item, strength: e.target.value })} />
+        </div>
+      </div>
+
+      <div className="pv-block__row pv-block__row--3">
+        <div className="rx-field" style={{ marginBottom: 0 }}>
+          <label>Dose <span style={{ color: "var(--rx-red)" }}>*</span></label>
+          <select className="pv-select"
+            value={item.dose || ""} onChange={e => onChange({ ...item, dose: e.target.value })}>
+            <option value="">Select dose</option>
+            {DOSE_OPTIONS.map(d => <option key={d} value={d}>{d}</option>)}
+          </select>
+        </div>
+        <div className="rx-field" style={{ marginBottom: 0 }}>
+          <label>Frequency <span style={{ color: "var(--rx-red)" }}>*</span></label>
+          <select className="pv-select"
+            value={item.frequency || ""} onChange={e => onChange({ ...item, frequency: e.target.value })}>
+            <option value="">Select</option>
+            {FREQUENCY_OPTIONS.map(f => <option key={f.v} value={f.v}>{f.l}</option>)}
+          </select>
+        </div>
+        <div className="rx-field" style={{ marginBottom: 0 }}>
+          <label>Duration <span style={{ color: "var(--rx-red)" }}>*</span></label>
+          <select className="pv-select"
+            value={item.duration_days || ""} onChange={e => onChange({ ...item, duration_days: e.target.value })}>
+            <option value="">Select</option>
+            {DURATION_OPTIONS.map(d => <option key={d.v} value={d.v}>{d.l}</option>)}
+          </select>
+        </div>
+      </div>
     </div>
   );
 }
 
-function AddressPicker({ value, onChange }) {
+function _parseStrength(name) {
+  const m = /(\d+(?:\.\d+)?\s*(?:mg|mcg|ml|g|%|iu))/i.exec(name || "");
+  return m ? m[1] : "";
+}
+
+function AddressFieldInline({ value, onChange, placeholder }) {
   const [q, setQ] = rxS(value?.formatted || "");
   const [sugs, setSugs] = rxS([]);
   const [open, setOpen] = rxS(false);
@@ -210,8 +232,7 @@ function AddressPicker({ value, onChange }) {
     providerApi.addressAutocomplete(dq)
       .then(r => {
         if (cancelled) return;
-        const items = Array.isArray(r) ? r : (r?.predictions || r?.items || []);
-        setSugs(items);
+        setSugs(Array.isArray(r) ? r : (r?.predictions || r?.items || []));
       })
       .catch(() => { if (!cancelled) setSugs([]); });
     return () => { cancelled = true; };
@@ -223,14 +244,9 @@ function AddressPicker({ value, onChange }) {
     if (pid) {
       try {
         const d = await providerApi.addressDetails(pid);
-        onChange({
-          formatted: d?.formatted_address || s.description || s.label,
-          lat: d?.lat ?? d?.location?.lat,
-          lng: d?.lng ?? d?.location?.lng,
-          place_id: pid,
-          components: d?.components || d?.address_components,
-        });
-        setQ(d?.formatted_address || s.description || s.label || "");
+        const formatted = d?.formatted_address || s.description || s.label;
+        onChange({ formatted, lat: d?.lat ?? d?.location?.lat, lng: d?.lng ?? d?.location?.lng, place_id: pid });
+        setQ(formatted || "");
       } catch {
         onChange({ formatted: s.description || s.label, place_id: pid });
         setQ(s.description || s.label || "");
@@ -243,7 +259,7 @@ function AddressPicker({ value, onChange }) {
 
   return (
     <div className="ac">
-      <input className="rx-input" placeholder="Start typing the delivery address"
+      <input className="rx-input" placeholder={placeholder || "Start typing address..."}
         value={q}
         onChange={e => { setQ(e.target.value); setOpen(true); if (value) onChange({ formatted: e.target.value }); }}
         onFocus={() => setOpen(true)}
@@ -262,50 +278,56 @@ function AddressPicker({ value, onChange }) {
   );
 }
 
-// ===== Routing preview — mirrors the backend rules so providers see where their order will land =====
+// ─── Routing preview (mirrors backend rules) ────────────────────────
 function previewRoute({ classifications, state }) {
   const isLagos = (state || "").toLowerCase() === "lagos";
   const now = new Date();
-  const weekday = now.getDay(); // 0 Sun, 6 Sat
+  const weekday = now.getDay();
   const isWeekday = weekday >= 1 && weekday <= 5;
 
   const hasChronic = classifications.includes("chronic");
   const hasAcute = classifications.includes("acute");
   const hasSpecial = classifications.includes("special");
 
-  if (hasSpecial) {
-    return isLagos
-      ? { channel: "Leadway PBM Super App · WhatsApp #1", kind: "special-lagos" }
-      : { channel: "Leadway PBM Super App · WhatsApp #2", kind: "special-outside" };
-  }
-  if (hasChronic && hasAcute) {
-    return { channel: "Leadway PBM Super App · WhatsApp #1 (mixed)", kind: "mixed" };
-  }
-  if (hasChronic) {
-    return isLagos
-      ? { channel: "Leadway PBM Super App · WhatsApp #2 (chronic, Lagos)", kind: "chronic-lagos" }
-      : { channel: "Leadway PBM Super App · WhatsApp #2 (chronic, outside Lagos)", kind: "chronic-outside" };
-  }
+  if (hasSpecial) return { channel: isLagos ? "Leadway PBM · WhatsApp #1" : "Leadway PBM · WhatsApp #2", kind: "special" };
+  if (hasChronic && hasAcute) return { channel: "Leadway PBM · WhatsApp #1 (mixed)", kind: "mixed" };
+  if (hasChronic) return { channel: "Leadway PBM · WhatsApp #2", kind: "chronic" };
   if (hasAcute) {
-    if (isLagos && isWeekday) return { channel: "Leadway PBM Super App · WhatsApp #1 (acute, Lagos, weekday)", kind: "acute-lagos-weekday" };
-    if (isLagos) return { channel: "WellaHealth partner pharmacy (Lagos, weekend/after-hours)", kind: "acute-lagos-weekend" };
-    return { channel: "WellaHealth / onboarded partner pharmacy (outside Lagos)", kind: "acute-outside" };
+    if (isLagos && isWeekday) return { channel: "Leadway PBM · WhatsApp #1 (acute, Lagos)", kind: "acute-lagos-weekday" };
+    if (isLagos) return { channel: "WellaHealth partner pharmacy", kind: "acute-lagos-weekend" };
+    return { channel: "WellaHealth / partner pharmacy", kind: "acute-outside" };
   }
   return { channel: "—", kind: "none" };
 }
 
-function ProviderNewRequest({ onSubmitted, initialMember }) {
-  const [step, setStep] = rxS(0);
+// ═════════════════════════════════════════════════════════════════════
+// Main one-pager
+// ═════════════════════════════════════════════════════════════════════
+function ProviderNewRequest({ session, initialMember, onSubmitted, onCancel }) {
+  // Section 1 — Enrollee
   const [memberId, setMemberId] = rxS(initialMember?.enrollee_id || initialMember?.member_id || "");
   const [member, setMember] = rxS(initialMember || null);
   const [lookingUp, setLookingUp] = rxS(false);
   const [lookupErr, setLookupErr] = rxS(null);
-
-  const [diagnoses, setDiagnoses] = rxS([]);
-  const [drugs, setDrugs] = rxS([{ id: 1 }]);
-  const [address, setAddress] = rxS(null);
+  const [memberPhone, setMemberPhone] = rxS(initialMember?.phone || "");
   const [altPhone, setAltPhone] = rxS("");
+  const [memberEmail, setMemberEmail] = rxS(initialMember?.email || "");
+
+  // Section 2 — Clinical
+  const [diagnoses, setDiagnoses] = rxS([]);
+  const [treatingDoctor, setTreatingDoctor] = rxS("");
+
+  // Section 3 — Medications
+  const [drugs, setDrugs] = rxS([{ id: 1 }]);
+
+  // Section 4 — Delivery
+  const [state, setState] = rxS(initialMember?.state || "");
+  const [address, setAddress] = rxS(null);
+
+  // Section 5 — Additional
+  const [urgency, setUrgency] = rxS("routine");
   const [notes, setNotes] = rxS("");
+
   const [submitting, setSubmitting] = rxS(false);
   const [submitErr, setSubmitErr] = rxS(null);
 
@@ -316,7 +338,9 @@ function ProviderNewRequest({ onSubmitted, initialMember }) {
     try {
       const data = await providerApi.lookupEnrollee(id);
       setMember(data);
-      if (data?.state) setAddress(a => a || null);
+      if (data?.phone) setMemberPhone(data.phone);
+      if (data?.email) setMemberEmail(data.email);
+      if (data?.state) setState(data.state);
     } catch (e) {
       setMember(null);
       setLookupErr(e.message || "Member not found");
@@ -329,34 +353,47 @@ function ProviderNewRequest({ onSubmitted, initialMember }) {
   const updateDrug = (idx, v) => setDrugs(d => d.map((x, i) => i === idx ? v : x));
   const removeDrug = (idx) => setDrugs(d => d.length === 1 ? [{ id: Date.now() }] : d.filter((_, i) => i !== idx));
 
-  const validDrugs = drugs.filter(d => d.drug_name && d.dosage && d.quantity);
-  const classifications = Array.from(new Set(validDrugs.map(d => d.classification).filter(c => c && c !== "auto")));
+  const validDrugs = drugs.filter(d => d.drug_name && d.dose && d.frequency && d.duration_days);
+  const classifications = Array.from(new Set(validDrugs.map(d => d.classification).filter(Boolean)));
+  const routing = rxM(() => previewRoute({ classifications, state }), [classifications.join("|"), state]);
 
-  const routing = rxM(() => previewRoute({ classifications, state: member?.state }), [classifications.join("|"), member?.state]);
-
-  const canNext = (() => {
-    if (step === 0) return !!member;
-    if (step === 1) return diagnoses.length > 0;
-    if (step === 2) return validDrugs.length > 0;
-    return true;
-  })();
+  const canSubmit =
+    member &&
+    memberPhone.trim().length >= 10 &&
+    diagnoses.length > 0 &&
+    validDrugs.length > 0 &&
+    !!address?.formatted &&
+    !submitting;
 
   const submit = async () => {
+    if (!canSubmit) return;
     setSubmitting(true); setSubmitErr(null);
     try {
       const payload = {
         enrollee_id: member.enrollee_id || member.member_id || memberId.trim(),
         diagnoses: diagnoses.map(d => ({ code: d.code, name: d.name })),
-        items: validDrugs.map(d => ({
-          drug_id: d.drug_id,
-          drug_name: d.drug_name,
-          generic: d.generic,
-          dosage: d.dosage,
-          quantity: Number(d.quantity),
-          duration_days: d.duration_days ? Number(d.duration_days) : null,
-          classification_hint: d.classification === "auto" ? null : d.classification,
-          unit_price: d.unit_price || null,
-        })),
+        items: validDrugs.map(d => {
+          const dosage = [d.strength, d.dose, d.frequency].filter(Boolean).join(" ");
+          const durationDays = Number(d.duration_days) || null;
+          // derive quantity if caller didn't supply one
+          let qty = d.quantity ? Number(d.quantity) : null;
+          if (!qty) {
+            const doseCount = parseInt((d.dose || "").match(/^\d+/)?.[0] || "1", 10);
+            const freqMap = { OD: 1, BD: 2, TDS: 3, QID: 4, Q8H: 3, Q12H: 2 };
+            const perDay = freqMap[d.frequency] || 1;
+            qty = durationDays ? doseCount * perDay * durationDays : doseCount * perDay;
+          }
+          return {
+            drug_id: d.drug_id,
+            drug_name: d.drug_name,
+            generic: d.generic,
+            dosage: dosage || d.drug_name,
+            quantity: qty,
+            duration_days: durationDays,
+            classification_hint: d.classification || null,
+            unit_price: d.unit_price || null,
+          };
+        }),
         delivery: address ? {
           formatted: address.formatted,
           lat: address.lat,
@@ -364,7 +401,11 @@ function ProviderNewRequest({ onSubmitted, initialMember }) {
           place_id: address.place_id,
         } : null,
         alt_phone: altPhone || null,
-        notes: notes || null,
+        notes: [
+          treatingDoctor ? `Treating doctor: ${treatingDoctor}` : null,
+          urgency && urgency !== "routine" ? `Urgency: ${urgency.toUpperCase()}` : null,
+          notes || null,
+        ].filter(Boolean).join(" · ") || null,
       };
       const r = await providerApi.submitRequest(payload);
       onSubmitted && onSubmitted(r);
@@ -375,116 +416,154 @@ function ProviderNewRequest({ onSubmitted, initialMember }) {
     }
   };
 
+  const facility = session?.facility || session?.provider_name || "";
+
   return (
-    <>
-      <div className="mpage__head">
-        <h1>New prescription</h1>
-        <p>Four quick steps. We auto-classify, apply tariff, and route to the right fulfilment channel.</p>
+    <div className="pv-onepager">
+      <div className="pv-onepager__head">
+        <h1>New Medication Request</h1>
+        <p>Submit a prescription for an enrolled member.</p>
       </div>
 
-      <Stepper step={step} onStep={setStep} />
+      {/* ───────────── 1. Enrollee ───────────── */}
+      <section className="pv-block">
+        <div className="pv-block__head"><span className="pv-block__num">1.</span> Enrollee Information</div>
 
-      <div className="mcard" style={{ marginTop: 18 }}>
-        {step === 0 && (
-          <>
-            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>Member</div>
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <input className="rx-input" style={{ flex: 1, minWidth: 240 }} placeholder="e.g. 23069157/0" value={memberId}
-                onChange={e => setMemberId(e.target.value)}
-                onKeyDown={e => { if (e.key === "Enter") lookup(); }} />
-              <button className="rx-btn" style={{ width: "auto" }} onClick={lookup} disabled={lookingUp}>
-                {lookingUp ? <><RxIcon name="loader-2" size={16} /> Looking up…</> : <><RxIcon name="search" size={16} /> Verify cover</>}
-              </button>
+        <div className="rx-field">
+          <label>Enrollee ID <span style={{ color: "var(--rx-red)" }}>*</span></label>
+          <div className="pv-lookup">
+            <input className="rx-input" placeholder="Enter Enrollee ID" value={memberId}
+              onChange={e => setMemberId(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") lookup(); }} />
+            <button type="button" onClick={lookup} disabled={lookingUp}>
+              {lookingUp ? "Looking…" : "Look Up"}
+            </button>
+          </div>
+          {lookupErr && <div style={{ marginTop: 8, fontSize: 12.5, color: "var(--rx-red)", fontWeight: 600 }}>{lookupErr}</div>}
+          {member && (
+            <div style={{ marginTop: 10, padding: "10px 12px", background: "var(--rx-green-bg)", border: "1px solid #c6ebd3", borderRadius: 8, fontSize: 13, color: "#0d7a35" }}>
+              <strong>{member.name || "Member"}</strong>
+              {member.scheme && <> · {member.scheme}</>}
+              {member.age && <> · {member.age} yrs</>}
+              {member.state && <> · {member.state}</>}
             </div>
-            {lookupErr && <div style={{ marginTop: 12 }}><RxBanner kind="warn" icon="alert-triangle">{lookupErr}</RxBanner></div>}
-            {member && (
-              <div style={{ marginTop: 16 }}>
-                <MemberCover member={member} onStartRequest={() => { /* already in-flow */ }} />
-              </div>
-            )}
-          </>
-        )}
+          )}
+        </div>
 
-        {step === 1 && (
-          <>
-            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>Diagnosis (ICD-10)</div>
-            <DiagnosisPicker
+        <div className="pv-block__row pv-block__row--3">
+          <div className="rx-field" style={{ marginBottom: 0 }}>
+            <label>Member Phone <span style={{ color: "var(--rx-red)" }}>*</span></label>
+            <input className="rx-input" placeholder="e.g. 08012345678" value={memberPhone}
+              onChange={e => setMemberPhone(e.target.value)} />
+          </div>
+          <div className="rx-field" style={{ marginBottom: 0 }}>
+            <label>Alternative Phone</label>
+            <input className="rx-input" placeholder="Optional" value={altPhone}
+              onChange={e => setAltPhone(e.target.value)} />
+          </div>
+          <div className="rx-field" style={{ marginBottom: 0 }}>
+            <label>Member Email</label>
+            <input className="rx-input" placeholder="Optional" value={memberEmail}
+              onChange={e => setMemberEmail(e.target.value)} />
+          </div>
+        </div>
+
+        {facility && (
+          <div className="pv-block__facility">
+            <span className="pv-block__facility__k">Facility</span>
+            <span className="pv-block__facility__v">{facility}</span>
+          </div>
+        )}
+      </section>
+
+      {/* ───────────── 2. Clinical ───────────── */}
+      <section className="pv-block">
+        <div className="pv-block__head"><span className="pv-block__num">2.</span> Clinical Information</div>
+
+        <div className="pv-block__row pv-block__row--2">
+          <div>
+            <DiagnosisField
               selected={diagnoses}
               onAdd={d => setDiagnoses(xs => [...xs, d])}
               onRemove={d => setDiagnoses(xs => xs.filter(x => x.code !== d.code))} />
-          </>
-        )}
-
-        {step === 2 && (
-          <>
-            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>Medications</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              {drugs.map((d, i) => (
-                <DrugRow key={d.id || i} item={d}
-                  onChange={v => updateDrug(i, v)}
-                  onRemove={() => removeDrug(i)} />
-              ))}
-            </div>
-            <button className="rx-btn rx-btn--ghost rx-btn--sm" style={{ width: "auto", marginTop: 12 }} onClick={addDrug}>
-              <RxIcon name="plus" size={14} /> Add another drug
-            </button>
-          </>
-        )}
-
-        {step === 3 && (
-          <>
-            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>Delivery address</div>
-            <RxField label="Address (Google Places)">
-              <AddressPicker value={address} onChange={setAddress} />
-            </RxField>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <RxField label="Alternative phone (optional)">
-                <input className="rx-input" placeholder="e.g. 08012345678" value={altPhone}
-                  onChange={e => setAltPhone(e.target.value)} />
-              </RxField>
-              <RxField label="Prescriber notes">
-                <input className="rx-input" placeholder="Anything PBM or pharmacy should know"
-                  value={notes} onChange={e => setNotes(e.target.value)} />
-              </RxField>
-            </div>
-
-            <div style={{ marginTop: 18, padding: 16, background: "#fafafc", border: "1px solid var(--rx-line)", borderRadius: 12 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Routing preview</div>
-              <div style={{ fontSize: 13.5, color: "var(--rx-ink)", marginBottom: 6 }}>
-                <RxIcon name="route" size={14} /> {routing.channel}
-              </div>
-              <div style={{ fontSize: 12, color: "var(--rx-muted)", lineHeight: 1.55 }}>
-                Based on member state (<strong>{member?.state || "—"}</strong>), classifications ({classifications.join(", ") || "auto"}) and current time.
-              </div>
-            </div>
-
-            {submitErr && <div style={{ marginTop: 14 }}><RxBanner kind="warn" icon="alert-triangle">{submitErr}</RxBanner></div>}
-          </>
-        )}
-
-        <div className="pv-stepbar">
-          <button className="rx-btn rx-btn--ghost rx-btn--sm" style={{ width: "auto" }}
-            onClick={() => setStep(s => Math.max(0, s - 1))}
-            disabled={step === 0}>
-            <RxIcon name="arrow-left" size={14} /> Back
-          </button>
-
-          {step < STEPS.length - 1 ? (
-            <button className="rx-btn rx-btn--sm" style={{ width: "auto" }}
-              onClick={() => setStep(s => Math.min(STEPS.length - 1, s + 1))}
-              disabled={!canNext}>
-              Next <RxIcon name="arrow-right" size={14} />
-            </button>
-          ) : (
-            <button className="rx-btn rx-btn--sm" style={{ width: "auto" }}
-              onClick={submit} disabled={submitting || validDrugs.length === 0}>
-              {submitting ? <><RxIcon name="loader-2" size={14} /> Submitting…</> : <><RxIcon name="send" size={14} /> Submit prescription</>}
-            </button>
-          )}
+          </div>
+          <div className="rx-field" style={{ marginBottom: 0 }}>
+            <label>Treating Doctor <span style={{ color: "var(--rx-muted)" }}>(optional)</span></label>
+            <input className="rx-input" placeholder="Dr. name" value={treatingDoctor}
+              onChange={e => setTreatingDoctor(e.target.value)} />
+          </div>
         </div>
+      </section>
+
+      {/* ───────────── 3. Medications ───────────── */}
+      <section className="pv-block">
+        <div className="pv-block__head"><span className="pv-block__num">3.</span> Medications</div>
+
+        {drugs.map((d, i) => (
+          <MedicationCard key={d.id || i}
+            index={i}
+            item={d}
+            onChange={v => updateDrug(i, v)}
+            onRemove={() => removeDrug(i)}
+            showRemove={drugs.length > 1} />
+        ))}
+
+        <button type="button" className="pv-add-med" onClick={addDrug}>
+          + Add Another Medication
+        </button>
+      </section>
+
+      {/* ───────────── 4. Delivery ───────────── */}
+      <section className="pv-block">
+        <div className="pv-block__head"><span className="pv-block__num">4.</span> Delivery Location</div>
+
+        <div className="rx-field">
+          <label>State <span style={{ color: "var(--rx-red)" }}>*</span></label>
+          <input className="rx-input" placeholder="Type state name..." value={state}
+            onChange={e => setState(e.target.value)} />
+        </div>
+        <div className="rx-field" style={{ marginBottom: 0 }}>
+          <label>Delivery Address <span style={{ color: "var(--rx-red)" }}>*</span></label>
+          <AddressFieldInline value={address} onChange={setAddress} />
+        </div>
+
+        {classifications.length > 0 && (
+          <div className="pv-route-hint">
+            <strong>Routing preview:</strong> {routing.channel}
+          </div>
+        )}
+      </section>
+
+      {/* ───────────── 5. Additional ───────────── */}
+      <section className="pv-block">
+        <div className="pv-block__head"><span className="pv-block__num">5.</span> Additional Information</div>
+
+        <div className="rx-field">
+          <label>Urgency</label>
+          <select className="pv-select" value={urgency} onChange={e => setUrgency(e.target.value)}>
+            {URGENCY_OPTIONS.map(u => <option key={u.v} value={u.v}>{u.l}</option>)}
+          </select>
+        </div>
+        <div className="rx-field" style={{ marginBottom: 0 }}>
+          <label>Provider Notes</label>
+          <textarea className="rx-input" rows={3} placeholder="Optional notes"
+            style={{ resize: "vertical", minHeight: 80, fontFamily: "inherit" }}
+            value={notes} onChange={e => setNotes(e.target.value)} />
+        </div>
+      </section>
+
+      {submitErr && <div style={{ marginBottom: 14 }}><RxBanner kind="warn" icon="alert-triangle">{submitErr}</RxBanner></div>}
+
+      <div className="pv-footer">
+        <button className="rx-btn rx-btn--ghost rx-btn--sm" onClick={() => onCancel && onCancel()}>Cancel</button>
+        <button className="rx-btn rx-btn--sm" onClick={submit} disabled={!canSubmit}>
+          {submitting ? <><RxIcon name="loader-2" size={14} /> Submitting…</> : <>Submit Request <RxIcon name="send" size={14} /></>}
+        </button>
       </div>
-    </>
+    </div>
   );
 }
 
-Object.assign(window, { STEPS, Stepper, DiagnosisPicker, DrugRow, AddressPicker, useDebouncedQuery, ProviderNewRequest, previewRoute });
+Object.assign(window, { DOSE_OPTIONS, FREQUENCY_OPTIONS, DURATION_OPTIONS, URGENCY_OPTIONS,
+  DiagnosisField, MedicationCard, AddressFieldInline,
+  ProviderNewRequest, previewRoute, useDebouncedQuery });
