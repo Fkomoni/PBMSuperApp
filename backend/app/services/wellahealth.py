@@ -4,10 +4,9 @@ Docs: https://docs.wellahealth.com
 Base: https://api.wellahealth.com
 Auth: HTTP Basic (client_id:client_secret) + Partner-Code header.
 
-ADAPT: two path/payload touch-points below. Fill in the exact endpoint
-names + JSON fields once you've picked the WellaHealth flows you use
-(tariff, pharmacy search, and prescription dispatch are the three we care
-about). Everything else reads from `app.core.config.settings`.
+NOTE: The three path constants + two payload builders below are the only
+things to swap when you have the exact docs open. Everything else is
+plumbing (auth headers, error wrapping, JSON normalisation).
 """
 from __future__ import annotations
 
@@ -19,6 +18,15 @@ import httpx
 from app.core.config import settings
 
 _TIMEOUT = httpx.Timeout(10.0, connect=4.0)
+
+
+# ============================================================
+# ⬇️  ADAPT: paste the exact paths from https://docs.wellahealth.com
+# ============================================================
+DRUG_SEARCH_PATH = "/v1/pharmacy/drugs/search"       # GET  — ?q=<drug>
+DISPATCH_PATH    = "/v1/pharmacy/prescriptions"      # POST — body below
+TRACKING_PATH    = "/v1/pharmacy/prescriptions/{id}"  # GET — prescription status
+# ============================================================
 
 
 class WellaHealthError(Exception):
@@ -44,30 +52,10 @@ def _auth_headers() -> dict:
         "Content-Type": "application/json",
     }
     if settings.wellahealth_partner_code:
-        # Docs reference "Partner-Code" for most partner endpoints; some use
-        # "X-Partner-Code". Add both to be safe.
+        # Two header names shipped so whichever WellaHealth expects wins.
         headers["Partner-Code"] = settings.wellahealth_partner_code
         headers["X-Partner-Code"] = settings.wellahealth_partner_code
     return headers
-
-
-async def _post(path: str, payload: dict) -> dict:
-    url = settings.wellahealth_base_url.rstrip("/") + path
-    try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            resp = await client.post(url, json=payload, headers=_auth_headers())
-    except httpx.HTTPError as e:
-        raise WellaHealthError(f"WellaHealth unreachable: {e}") from e
-
-    try:
-        data = resp.json()
-    except Exception:
-        data = {"raw": resp.text}
-
-    if resp.status_code >= 400:
-        msg = (isinstance(data, dict) and (data.get("message") or data.get("error"))) or f"WellaHealth error {resp.status_code}"
-        raise WellaHealthError(str(msg))
-    return data if isinstance(data, dict) else {"raw": data}
 
 
 async def _get(path: str, params: dict | None = None) -> Any:
@@ -89,17 +77,38 @@ async def _get(path: str, params: dict | None = None) -> Any:
     return data
 
 
+async def _post(path: str, payload: dict) -> dict:
+    url = settings.wellahealth_base_url.rstrip("/") + path
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            resp = await client.post(url, json=payload, headers=_auth_headers())
+    except httpx.HTTPError as e:
+        raise WellaHealthError(f"WellaHealth unreachable: {e}") from e
+
+    try:
+        data = resp.json()
+    except Exception:
+        data = {"raw": resp.text}
+
+    if resp.status_code >= 400:
+        msg = (isinstance(data, dict) and (data.get("message") or data.get("error"))) or f"WellaHealth error {resp.status_code}"
+        raise WellaHealthError(str(msg))
+    return data if isinstance(data, dict) else {"raw": data}
+
+
 # ============================================================
-# ADAPT #1 — drug tariff / search
+# Drug tariff search
 # ============================================================
 async def search_tariff(query: str) -> list[dict]:
-    """Drug tariff search. Replace `/v1/pharmacy/drugs/search` with the exact
-    path from the WellaHealth docs and adjust the response shape.
+    """Returns a list of {drug_id, name, generic, unit_price, classification}.
+
+    Returns [] if WellaHealth credentials aren't set, or on transient errors,
+    so the frontend autocomplete never hangs.
     """
     if not _configured():
         return []
     try:
-        data = await _get("/v1/pharmacy/drugs/search", params={"q": query})
+        data = await _get(DRUG_SEARCH_PATH, params={"q": query})
     except WellaHealthError:
         return []
     items = data.get("data") if isinstance(data, dict) else data
@@ -107,32 +116,25 @@ async def search_tariff(query: str) -> list[dict]:
         return []
     return [
         {
-            "drug_id": d.get("id") or d.get("code"),
-            "name": d.get("name") or d.get("brand_name"),
+            "drug_id": d.get("id") or d.get("code") or d.get("drug_id"),
+            "name": d.get("name") or d.get("brand_name") or d.get("drug_name"),
             "generic": d.get("generic") or d.get("generic_name"),
-            "unit_price": d.get("price") or d.get("unit_price"),
+            "unit_price": d.get("price") or d.get("unit_price") or d.get("unitPrice"),
             "classification": d.get("classification"),
         }
         for d in items
-        if d.get("name") or d.get("brand_name")
+        if d.get("name") or d.get("brand_name") or d.get("drug_name")
     ]
 
 
 # ============================================================
-# ADAPT #2 — dispatch a prescription to WellaHealth for fulfilment
+# Dispatch a prescription
 # ============================================================
-async def dispatch_fulfilment(request: dict) -> dict:
-    """Send an acute prescription to WellaHealth for fulfilment.
-
-    `request` is the serialized MedicationRequest (see api/requests.py::_serialize)
-    enriched with member contact + delivery. The default payload here matches
-    WellaHealth's partner-intake pattern; adjust field names once you have the
-    exact docs open.
+def _dispatch_payload(request: dict) -> dict:
+    """Shape for POST DISPATCH_PATH. Tweak the field names if the docs use
+    different casing or additional required fields.
     """
-    if not _configured():
-        raise WellaHealthError("WellaHealth credentials are not configured")
-
-    payload = {
+    return {
         "partnerCode": settings.wellahealth_partner_code,
         "externalReference": request.get("id"),
         "member": {
@@ -160,4 +162,23 @@ async def dispatch_fulfilment(request: dict) -> dict:
         "notes": request.get("notes"),
     }
 
-    return await _post("/v1/pharmacy/prescriptions", payload)
+
+async def dispatch_fulfilment(request: dict) -> dict:
+    """Send an acute prescription to WellaHealth. See _dispatch_payload for shape."""
+    if not _configured():
+        raise WellaHealthError("WellaHealth credentials are not configured")
+    return await _post(DISPATCH_PATH, _dispatch_payload(request))
+
+
+# ============================================================
+# Tracking
+# ============================================================
+async def tracking(wella_reference: str) -> dict:
+    """Fetch current status of a prescription previously dispatched via
+    dispatch_fulfilment. Returns the raw WellaHealth JSON; the caller is
+    responsible for mapping its events onto TrackingEvent rows.
+    """
+    if not _configured():
+        raise WellaHealthError("WellaHealth credentials are not configured")
+    path = TRACKING_PATH.format(id=wella_reference)
+    return await _get(path)

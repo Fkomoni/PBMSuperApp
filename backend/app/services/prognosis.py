@@ -151,46 +151,47 @@ def _service_auth_headers() -> dict:
     }
 
 
-# ADAPT #4 — path + query shape for member verify. Common Prognosis shapes:
-#   GET  /api/Enrollee/Verify/{id}
-#   POST /api/Enrollee/Verify    body: {"EnrolleeId": "..."}
-# Switch the call below to match your exact endpoint.
-ENROLLEE_VERIFY_PATH_TEMPLATE = "/api/Enrollee/Verify/{enrollee_id}"
+# ADAPT #4 — path + query shape for member verify.
+# Leadway Prognosis exposes:
+#   GET /api/EnrolleeProfile/GetEnrolleeBioDataByEnrolleeID?enrolleeid=<id>
+ENROLLEE_VERIFY_PATH = "/api/EnrolleeProfile/GetEnrolleeBioDataByEnrolleeID"
 
 
 # ADAPT #5 — how the Prognosis enrollee response maps to the shape the
 # frontend renders (see schemas/provider.py::EnrolleeOut). Edit here.
 def _enrollee_from_response(data: dict) -> dict:
+    first = data.get("FirstName") or data.get("Firstname") or data.get("firstname") or ""
+    last  = data.get("LastName")  or data.get("Lastname")  or data.get("lastname")  or data.get("Surname") or ""
     return {
-        "enrollee_id":  data.get("EnrolleeId")   or data.get("enrollee_id")  or data.get("MemberId"),
-        "name":         data.get("FullName")     or data.get("name")         or f"{data.get('FirstName','')} {data.get('LastName','')}".strip(),
-        "scheme":       data.get("Scheme")       or data.get("PlanName")     or data.get("scheme"),
-        "company":      data.get("CompanyName")  or data.get("Employer")     or data.get("company"),
+        "enrollee_id":  data.get("EnrolleeId")   or data.get("EnrolleeID")  or data.get("enrolleeid")   or data.get("MemberId") or data.get("enrollee_id"),
+        "name":         data.get("FullName")     or data.get("Name")        or data.get("name")         or f"{first} {last}".strip(),
+        "scheme":       data.get("Scheme")       or data.get("SchemeName")  or data.get("PlanName")     or data.get("scheme"),
+        "company":      data.get("CompanyName")  or data.get("Employer")    or data.get("Company")      or data.get("company"),
         "age":          data.get("Age")          or data.get("age"),
-        "phone":        data.get("PhoneNumber")  or data.get("Mobile")       or data.get("phone"),
+        "phone":        data.get("PhoneNumber")  or data.get("Mobile")      or data.get("Phone")        or data.get("phone"),
         "email":        data.get("Email")        or data.get("email"),
         "state":        data.get("State")        or data.get("state"),
-        "status":       data.get("Status")       or data.get("status"),
-        "expiry_date":  data.get("PlanEndDate")  or data.get("ExpiryDate")   or data.get("expiry_date"),
+        "status":       data.get("Status")       or data.get("EnrolleeStatus") or data.get("status"),
+        "expiry_date":  data.get("PlanEndDate")  or data.get("ExpiryDate")  or data.get("ValidityEndDate") or data.get("expiry_date"),
         "flag":         (data.get("Flag") or data.get("RiskFlag") or "").lower() or None,
         "flag_reason":  data.get("FlagReason")   or data.get("flag_reason"),
-        "vip":          data.get("IsVIP")        or data.get("vip")          or False,
+        "vip":          data.get("IsVIP")        or data.get("vip")         or False,
         "medications":  data.get("ChronicMedications") or data.get("medications") or [],
     }
 
 
 async def verify_enrollee(enrollee_id: str) -> dict | None:
-    """Call Prognosis member-verify. Returns a dict matching EnrolleeOut, or
-    None if Prognosis can't find the member. Raises PrognosisAuthError on
-    configuration / transport failure.
+    """Call Prognosis GetEnrolleeBioDataByEnrolleeID.
+
+    Returns a dict matching EnrolleeOut, or None if Prognosis cannot find
+    the member. Raises PrognosisAuthError on config / transport failure.
     """
-    path = ENROLLEE_VERIFY_PATH_TEMPLATE.format(enrollee_id=enrollee_id)
-    url = settings.prognosis_base_url.rstrip("/") + path
+    url = settings.prognosis_base_url.rstrip("/") + ENROLLEE_VERIFY_PATH
     headers = _service_auth_headers()
 
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            resp = await client.get(url, headers=headers)
+            resp = await client.get(url, params={"enrolleeid": enrollee_id}, headers=headers)
     except httpx.HTTPError as e:
         raise PrognosisAuthError(f"Prognosis unreachable: {e}") from e
 
@@ -204,12 +205,18 @@ async def verify_enrollee(enrollee_id: str) -> dict | None:
     if resp.status_code >= 400:
         raise PrognosisAuthError(f"Prognosis error {resp.status_code}: {data}")
 
-    payload = data if isinstance(data, dict) else {}
-    for k in ("data", "Data", "enrollee", "Enrollee", "result", "Result"):
-        if isinstance(payload.get(k), dict):
-            payload = payload[k]
-            break
+    # Unwrap common envelopes; accept both lists (first row) and objects.
+    payload: Any = data
+    if isinstance(payload, dict):
+        for k in ("data", "Data", "enrollee", "Enrollee", "result", "Result", "Payload"):
+            if k in payload:
+                payload = payload[k]
+                break
+    if isinstance(payload, list):
+        payload = payload[0] if payload else {}
+    if not isinstance(payload, dict):
+        return None
 
-    if not payload or not (payload.get("EnrolleeId") or payload.get("enrollee_id") or payload.get("MemberId")):
+    if not (payload.get("EnrolleeId") or payload.get("enrollee_id") or payload.get("MemberId") or payload.get("EnrolleeID")):
         return None
     return _enrollee_from_response(payload)
