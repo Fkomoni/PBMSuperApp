@@ -73,16 +73,26 @@ def _mint(p: Provider) -> LoginOut:
 
 @router.post("/login", response_model=LoginOut)
 async def login(body: LoginIn, db: Session = Depends(get_db)):
-    """Primary provider login: call the Prognosis Provider-Login API; if
-    Prognosis is unreachable OR disabled (base URL blank) OR the address
-    looks like a local admin account, fall back to the DB + bcrypt path so
-    PBM ops can still sign in.
+    """Local-first provider login.
+
+    1. If email+password match a local account (admin, PBM staff, or a
+       cached provider), sign the user in. No Prognosis dependency here,
+       so admins can always get in — even if Prognosis is down or the
+       service-account headers are misconfigured.
+    2. Otherwise, proxy to Prognosis Provider-Login (real providers).
+       On success, we upsert a local `providers` row so subsequent logins
+       can take the fast local path.
     """
     email = body.email.lower()
     logger.info("login attempt: %s", email)
 
-    prognosis_error: str | None = None
-    # 1. Prognosis-first (real providers)
+    # 1. Local DB (always cheap; never depends on Prognosis)
+    p = db.scalar(select(Provider).where(Provider.email == email))
+    if p and p.is_active and verify_password(body.password, p.password_hash):
+        logger.info("login OK via local DB: %s (role=%s)", email, p.role)
+        return _mint(p)
+
+    # 2. Prognosis (real providers)
     if settings.prognosis_base_url:
         try:
             pp = await prognosis.provider_login(email, body.password)
@@ -90,22 +100,11 @@ async def login(body: LoginIn, db: Session = Depends(get_db)):
             logger.info("login OK via Prognosis: %s", email)
             return _mint(p)
         except PrognosisAuthError as e:
-            prognosis_error = str(e)
-            logger.warning("login Prognosis path failed for %s: %s", email, prognosis_error)
-            # Hard credential rejects bubble up immediately. Anything else
-            # (transport, config, unexpected shape) falls to local auth so
-            # admins can still get in when Prognosis is down.
-            msg = prognosis_error.lower()
-            if any(k in msg for k in ("invalid", "password", "unauthorized", "not found", "does not exist")):
-                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=prognosis_error)
+            logger.warning("login Prognosis path failed for %s: %s", email, e)
+            # Fall through to a uniform 401 so we don't leak whether
+            # Prognosis was down vs bad creds to unauthed callers.
 
-    # 2. Local fallback (admin / seeded accounts)
-    p = db.scalar(select(Provider).where(Provider.email == email))
-    if not p or not p.is_active or not verify_password(body.password, p.password_hash):
-        logger.warning("login fallback rejected for %s (prognosis said: %s)", email, prognosis_error)
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
-    logger.info("login OK via local DB: %s", email)
-    return _mint(p)
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
 
 
 @router.post("/providers/register", response_model=ProviderOut, status_code=status.HTTP_201_CREATED)
