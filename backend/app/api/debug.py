@@ -1,11 +1,4 @@
-"""Live diagnostics for the Prognosis integration.
-
-ALL endpoints here are read-only and redact secrets. They exist so you can
-answer "is the latest code live?" and "what exactly are we sending to
-Prognosis?" without decoding production logs.
-
-Admin-only — not exposed to providers.
-"""
+"""Live diagnostics for the Prognosis integration."""
 from __future__ import annotations
 
 import os
@@ -19,10 +12,6 @@ from app.core.config import settings
 from app.core.security import current_admin
 from app.services import prognosis
 
-# The GET config endpoint is public — it only returns redacted metadata so
-# anyone (you, from a browser) can answer "is the deploy live + are the
-# Prognosis env vars set". The test-login endpoint stays admin-gated since
-# it takes a real password and makes a live call.
 router = APIRouter(prefix="/_debug", tags=["debug"])
 
 
@@ -44,22 +33,11 @@ def _file_mtime(path: str) -> str:
 
 @router.get("/prognosis")
 async def prognosis_config():
-    """Return what this running instance thinks its Prognosis config is.
-    Includes timestamps on key files so you can confirm which commit Render
-    is serving. Public — contents are fully redacted.
+    """Live Prognosis config, file mtimes, and service-Bearer cache state.
+    Public — all sensitive fields are redacted.
     """
-    try:
-        headers = prognosis._service_auth_headers()  # noqa: SLF001
-        auth_hdr = headers.get("Authorization", "")
-        scheme = auth_hdr.split(" ", 1)[0] if " " in auth_hdr else "(raw)"
-        token_preview = (auth_hdr.split(" ", 1)[1] if " " in auth_hdr else auth_hdr)[:10]
-        auth_ok = True
-        auth_err = None
-    except Exception as e:  # PrognosisAuthError or config issues
-        scheme = None
-        token_preview = None
-        auth_ok = False
-        auth_err = str(e)
+    # Don't try to fetch a fresh token here (network hop). Just show cache.
+    token_info = prognosis.token_cache_info()
 
     backend_root = Path(__file__).resolve().parents[2]
     return {
@@ -67,14 +45,13 @@ async def prognosis_config():
         "prognosis_username": _mask(settings.prognosis_username),
         "prognosis_password": "set" if settings.prognosis_password else "(empty)",
         "prognosis_auth_header_override": _mask(settings.prognosis_auth_header),
-        "login_path": prognosis.LOGIN_PATH,
-        "enrollee_verify_path": prognosis.ENROLLEE_VERIFY_PATH,
-        "auth_resolution": {
-            "ok": auth_ok,
-            "scheme": scheme,
-            "token_preview": token_preview,
-            "error": auth_err,
+        "paths": {
+            "api_users_login": prognosis.API_USERS_LOGIN_PATH,
+            "provider_login":  prognosis.LOGIN_PATH,
+            "enrollee_verify": prognosis.ENROLLEE_VERIFY_PATH,
+            "send_email":      prognosis.EMAIL_ALERT_PATH,
         },
+        "service_bearer_cache": token_info,
         "build_markers": {
             "prognosis_service_mtime": _file_mtime(str(backend_root / "app" / "services" / "prognosis.py")),
             "auth_api_mtime":          _file_mtime(str(backend_root / "app" / "api" / "auth.py")),
@@ -84,54 +61,35 @@ async def prognosis_config():
     }
 
 
+@router.post("/prognosis/refresh-token")
+async def prognosis_refresh_token():
+    """Force-exchange the service creds for a new Bearer. Returns the
+    resulting cache state (token preview only). Public so you can prove
+    Prognosis accepts your service account before wiring in providers.
+    """
+    try:
+        bearer = await prognosis._get_bearer(force=True)  # noqa: SLF001
+        return {
+            "ok": True,
+            "bearer_preview": bearer[:12] + "…",
+            "cache": prognosis.token_cache_info(),
+        }
+    except prognosis.PrognosisAuthError as e:
+        return {"ok": False, "error": str(e)}
+
+
 @router.post("/prognosis/test-login", dependencies=[Depends(current_admin)])
 async def prognosis_test_login(
     email: str = Query(...),
     password: str = Query(...),
 ):
-    """Fire a real Prognosis ProviderLogIn call with the creds you pass in
-    and return the HTTP status + response body verbatim. Use this to see
-    exactly what Prognosis says, without reading logs.
+    """Live ProviderLogIn test — admin-only since it takes a real password.
 
-    Admins only. Don't ship real passwords across this endpoint on a shared
-    network — use it from the Render shell or curl over HTTPS to your own
-    deployment.
+    Returns the Prognosis response status + body verbatim so you can see
+    exactly what happens for any given provider.
     """
-    url = settings.prognosis_base_url.rstrip("/") + prognosis.LOGIN_PATH
     try:
-        headers = prognosis._service_auth_headers()  # noqa: SLF001
-    except Exception as e:
-        return {
-            "ok": False,
-            "error": f"Service auth not configured: {e}",
-            "url": url,
-        }
-
-    auth_hdr = headers.get("Authorization", "")
-    scheme = auth_hdr.split(" ", 1)[0] if " " in auth_hdr else "(raw)"
-    token_preview = (auth_hdr.split(" ", 1)[1] if " " in auth_hdr else auth_hdr)[:10]
-
-    try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(8.0)) as client:
-            resp = await client.post(
-                url,
-                json=prognosis._build_payload(email, password),  # noqa: SLF001
-                headers=headers,
-            )
-        try:
-            body = resp.json()
-        except Exception:
-            body = {"raw": resp.text}
-        return {
-            "url": url,
-            "request_headers_sent": {
-                "Authorization": f"{scheme} {token_preview}…",
-                "Accept": headers.get("Accept"),
-                "Content-Type": headers.get("Content-Type"),
-            },
-            "request_body_sent": {"Email": email, "Password": "***"},
-            "status_code": resp.status_code,
-            "response_body": body,
-        }
-    except httpx.HTTPError as e:
-        return {"ok": False, "error": f"Transport failure: {e}", "url": url}
+        pp = await prognosis.provider_login(email, password)
+        return {"ok": True, "provider": pp.__dict__}
+    except prognosis.PrognosisAuthError as e:
+        return {"ok": False, "error": str(e), "cache": prognosis.token_cache_info()}
