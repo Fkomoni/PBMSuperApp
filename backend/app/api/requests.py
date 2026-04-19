@@ -113,7 +113,10 @@ async def submit(
     route_kinds = [classification, *{(i.get("classification_hint") or "") for i in item_dicts}]
 
     enrollee = await _enrich_from_prognosis(payload.enrollee_id)
-    state = enrollee.get("state")
+    # Routing uses the provider-typed delivery state (payload.member_state) —
+    # that's where the meds are going. Fall back to Prognosis's registered
+    # state if the provider left it blank.
+    state = payload.member_state or enrollee.get("state")
     route = classify_bucket(route_kinds, state=state)
 
     # Provider-supplied values win when Prognosis returned nothing; otherwise

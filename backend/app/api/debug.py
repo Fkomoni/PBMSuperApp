@@ -255,6 +255,51 @@ async def whatsapp_send_test(
         return {"ok": False, "error": str(e)}
 
 
+@router.get("/request/{request_id}")
+async def request_state(request_id: str):
+    """Diagnostic: show the full routing decision + tracking timeline for
+    a request. Public so you can hit it from a browser.
+    """
+    from sqlalchemy.orm import Session as _Session
+    from app.core.db import SessionLocal
+    from app.models import MedicationRequest, TrackingEvent
+    from app.services import whatsapp as wa
+
+    db: _Session = SessionLocal()
+    try:
+        req = db.get(MedicationRequest, request_id)
+        if not req:
+            return {"ok": False, "error": f"Request {request_id} not found"}
+        events = [
+            {"at": str(e.at), "label": e.label, "kind": e.kind, "icon": e.icon, "note": e.note}
+            for e in sorted(req.events, key=lambda x: x.at or __import__("datetime").datetime.min)
+        ]
+        items = [
+            {"drug_name": it.drug_name, "dosage": it.dosage, "duration_days": it.duration_days,
+             "classification_hint": it.classification_hint}
+            for it in req.items
+        ]
+        return {
+            "id": req.id,
+            "ref_code": req.ref_code,
+            "classification": req.classification,
+            "channel": req.channel,
+            "route": req.route,
+            "status": req.status,
+            "enrollee_state": req.enrollee_state,
+            "enrollee_name": req.enrollee_name,
+            "enrollee_phone": req.enrollee_phone,
+            "enrollee_email": req.enrollee_email,
+            "items": items,
+            "events": events,
+            "whatsapp_configured_for_channel":
+                bool(wa.resolve_number(req.channel)) if req.channel else None,
+            "whatsapp_channel_would_go_to": wa.resolve_number(req.channel) if req.channel else None,
+        }
+    finally:
+        db.close()
+
+
 @router.post("/prognosis/refresh-token")
 async def prognosis_refresh_token():
     """Force-exchange the service creds for a new Bearer. Returns the
