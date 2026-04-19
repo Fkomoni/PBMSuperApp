@@ -111,15 +111,18 @@ async def submit(
     state = enrollee.get("state")
     route = classify_bucket(route_kinds, state=state)
 
+    # Provider-supplied values win when Prognosis returned nothing; otherwise
+    # Prognosis is authoritative. Keeps legacy member records up to date
+    # without letting providers overwrite canonical Prognosis data silently.
     req = MedicationRequest(
         provider_id=provider["sub"],
         enrollee_id=payload.enrollee_id,
         enrollee_name=enrollee.get("name"),
-        enrollee_phone=enrollee.get("phone"),
-        enrollee_email=enrollee.get("email"),
+        enrollee_phone=enrollee.get("phone") or payload.member_phone,
+        enrollee_email=enrollee.get("email") or payload.member_email,
         enrollee_dob=enrollee.get("dob"),
         enrollee_gender=enrollee.get("gender"),
-        enrollee_state=state,
+        enrollee_state=state or payload.member_state,
         diagnoses=[d.model_dump() for d in payload.diagnoses],
         delivery=payload.delivery.model_dump() if payload.delivery else None,
         alt_phone=payload.alt_phone,

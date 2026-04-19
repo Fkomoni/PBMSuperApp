@@ -72,10 +72,13 @@ class RequestItemIn(BaseModel):
     drug_id: str | None = None
     drug_name: str
     generic: str | None = None
-    dosage: str
-    quantity: int = Field(ge=1)
+    dosage: str | None = None
+    quantity: int | None = Field(default=None, ge=1)
     duration_days: int | None = None
-    classification_hint: Literal["acute", "chronic"] | None = None
+    # Widened — drugs can be tagged hormonal/cancer/autoimmune/fertility/
+    # telemedicine by the tariff; routing handles the split, so just accept
+    # a free-form string here.
+    classification_hint: str | None = None
     unit_price: float | None = None
 
 
@@ -91,6 +94,11 @@ class MedicationRequestIn(BaseModel):
     diagnoses: list[DiagnosisRef]
     items: list[RequestItemIn]
     delivery: DeliveryIn | None = None
+    # Optional overrides from the provider form — used verbatim when
+    # Prognosis returns no phone/email/state for the member.
+    member_phone: str | None = None
+    member_email: str | None = None
+    member_state: str | None = None
     alt_phone: str | None = None
     notes: str | None = None
 

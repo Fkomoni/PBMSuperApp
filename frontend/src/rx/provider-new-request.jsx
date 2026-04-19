@@ -42,6 +42,82 @@ const URGENCY_OPTIONS = [
   { v: "stat",    l: "STAT (same day)" },
 ];
 
+// Nigeria states + FCT. Used for the state autocomplete in the
+// delivery section.
+const NG_STATES = [
+  "Abia", "Adamawa", "Akwa Ibom", "Anambra", "Bauchi", "Bayelsa",
+  "Benue", "Borno", "Cross River", "Delta", "Ebonyi", "Edo",
+  "Ekiti", "Enugu", "FCT (Abuja)", "Gombe", "Imo", "Jigawa",
+  "Kaduna", "Kano", "Katsina", "Kebbi", "Kogi", "Kwara",
+  "Lagos", "Nasarawa", "Niger", "Ogun", "Ondo", "Osun",
+  "Oyo", "Plateau", "Rivers", "Sokoto", "Taraba", "Yobe",
+  "Zamfara",
+];
+
+// Turn a Pydantic/FastAPI error payload into one friendly sentence.
+function humanizeError(err) {
+  if (!err) return "Something went wrong. Please try again.";
+  const msg = (typeof err === "string" ? err : err.message || "").toLowerCase();
+
+  // Known backend phrases → friendly rewrites
+  if (msg.includes("address is required")) return "A delivery address is required.";
+  if (msg.includes("phone is required")) return "Member phone number is required.";
+  if (msg.includes("enrollee_id is required")) return "Enrollee ID is missing.";
+  if (msg.includes("prognosis unreachable")) return "We couldn't reach the Leadway member system. Please try again in a moment.";
+  if (msg.includes("prognosis")) return "Member record check failed. Please re-verify the enrollee ID.";
+  if (msg.includes("wellahealth")) return "Pharmacy partner is temporarily unavailable. Your request has been saved.";
+  if (msg.includes("validation") || msg.includes("unprocessable")) return "Some form fields are incomplete or invalid. Please review and resubmit.";
+  if (msg.includes("unauthorized") || msg.includes("401")) return "Your session has expired. Please sign in again.";
+  if (msg.includes("404") || msg.includes("not found")) return "That member ID wasn't found on Prognosis. Please check and try again.";
+  if (msg.includes("network") || msg.includes("failed to fetch")) return "Network problem. Check your connection and try again.";
+
+  // Fallback — still friendly
+  return "We couldn't submit the request. Please try again or contact support on 07080627051.";
+}
+
+function StateField({ value, onChange }) {
+  const [q, setQ] = rxS(value || "");
+  const [open, setOpen] = rxS(false);
+  rxE(() => { setQ(value || ""); }, [value]);
+
+  const matches = rxM(() => {
+    const ql = (q || "").toLowerCase();
+    if (!ql) return NG_STATES.slice(0, 8);
+    return NG_STATES.filter(s => s.toLowerCase().includes(ql)).slice(0, 8);
+  }, [q]);
+
+  return (
+    <div className="ac">
+      <input className="rx-input" placeholder="Type state name..."
+        value={q}
+        onChange={e => { setQ(e.target.value); onChange(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)} />
+      {open && matches.length > 0 && (
+        <div className="ac__drop">
+          {matches.map(s => (
+            <div key={s} className="ac__item" onMouseDown={() => { onChange(s); setQ(s); setOpen(false); }}>
+              <div className="k">{s}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProgChip() {
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 4,
+      marginLeft: 8, padding: "1px 7px", borderRadius: 999,
+      background: "var(--rx-green-bg)", color: "#0d7a35",
+      fontSize: 10, fontWeight: 800, letterSpacing: ".05em", textTransform: "uppercase",
+      border: "1px solid #c6ebd3" }}>
+      <RxIcon name="check" size={9} /> From Prognosis
+    </span>
+  );
+}
+
 // ─── Diagnosis autocomplete (inline, no trigger) ────────────────────
 function DiagnosisField({ selected, onAdd, onRemove }) {
   const [q, setQ] = rxS("");
@@ -312,6 +388,9 @@ function ProviderNewRequest({ session, initialMember, onSubmitted, onCancel }) {
   const [memberPhone, setMemberPhone] = rxS(initialMember?.phone || "");
   const [altPhone, setAltPhone] = rxS("");
   const [memberEmail, setMemberEmail] = rxS(initialMember?.email || "");
+  // Track which fields came from Prognosis so we show the green chip.
+  const [phoneFromProg, setPhoneFromProg] = rxS(!!initialMember?.phone);
+  const [emailFromProg, setEmailFromProg] = rxS(!!initialMember?.email);
 
   // Section 2 — Clinical
   const [diagnoses, setDiagnoses] = rxS([]);
@@ -338,8 +417,10 @@ function ProviderNewRequest({ session, initialMember, onSubmitted, onCancel }) {
     try {
       const data = await providerApi.lookupEnrollee(id);
       setMember(data);
-      if (data?.phone) setMemberPhone(data.phone);
-      if (data?.email) setMemberEmail(data.email);
+      if (data?.phone) { setMemberPhone(data.phone); setPhoneFromProg(true); }
+      else setPhoneFromProg(false);
+      if (data?.email) { setMemberEmail(data.email); setEmailFromProg(true); }
+      else setEmailFromProg(false);
       if (data?.state) setState(data.state);
     } catch (e) {
       setMember(null);
@@ -400,6 +481,9 @@ function ProviderNewRequest({ session, initialMember, onSubmitted, onCancel }) {
           lng: address.lng,
           place_id: address.place_id,
         } : null,
+        member_phone: memberPhone || null,
+        member_email: memberEmail || null,
+        member_state: state || null,
         alt_phone: altPhone || null,
         notes: [
           treatingDoctor ? `Treating doctor: ${treatingDoctor}` : null,
@@ -410,7 +494,9 @@ function ProviderNewRequest({ session, initialMember, onSubmitted, onCancel }) {
       const r = await providerApi.submitRequest(payload);
       onSubmitted && onSubmitted(r);
     } catch (e) {
-      setSubmitErr(e.message || "Submission failed");
+      // Log the real error for diagnostics, show a friendly line to the provider.
+      console.error("submit failed:", e);
+      setSubmitErr(humanizeError(e));
     } finally {
       setSubmitting(false);
     }
@@ -452,9 +538,9 @@ function ProviderNewRequest({ session, initialMember, onSubmitted, onCancel }) {
 
         <div className="pv-block__row pv-block__row--3">
           <div className="rx-field" style={{ marginBottom: 0 }}>
-            <label>Member Phone <span style={{ color: "var(--rx-red)" }}>*</span></label>
+            <label>Member Phone <span style={{ color: "var(--rx-red)" }}>*</span>{phoneFromProg && memberPhone ? <ProgChip /> : null}</label>
             <input className="rx-input" placeholder="e.g. 08012345678" value={memberPhone}
-              onChange={e => setMemberPhone(e.target.value)} />
+              onChange={e => { setMemberPhone(e.target.value); setPhoneFromProg(false); }} />
           </div>
           <div className="rx-field" style={{ marginBottom: 0 }}>
             <label>Alternative Phone</label>
@@ -462,9 +548,10 @@ function ProviderNewRequest({ session, initialMember, onSubmitted, onCancel }) {
               onChange={e => setAltPhone(e.target.value)} />
           </div>
           <div className="rx-field" style={{ marginBottom: 0 }}>
-            <label>Member Email</label>
-            <input className="rx-input" placeholder="Optional" value={memberEmail}
-              onChange={e => setMemberEmail(e.target.value)} />
+            <label>Member Email{emailFromProg && memberEmail ? <ProgChip /> : null}</label>
+            <input className="rx-input" placeholder={member && !memberEmail ? "Email not on file — add one" : "Optional"}
+              value={memberEmail}
+              onChange={e => { setMemberEmail(e.target.value); setEmailFromProg(false); }} />
           </div>
         </div>
 
@@ -519,8 +606,7 @@ function ProviderNewRequest({ session, initialMember, onSubmitted, onCancel }) {
 
         <div className="rx-field">
           <label>State <span style={{ color: "var(--rx-red)" }}>*</span></label>
-          <input className="rx-input" placeholder="Type state name..." value={state}
-            onChange={e => setState(e.target.value)} />
+          <StateField value={state} onChange={setState} />
         </div>
         <div className="rx-field" style={{ marginBottom: 0 }}>
           <label>Delivery Address <span style={{ color: "var(--rx-red)" }}>*</span></label>
