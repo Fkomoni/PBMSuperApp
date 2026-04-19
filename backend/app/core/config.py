@@ -8,29 +8,44 @@ class Settings(BaseSettings):
     api_prefix: str = "/api/v1"
     environment: str = "local"
 
+    # ── JWT (portal sessions) ──────────────────────────────────────────
     jwt_secret: str = "change-me-in-prod"
     jwt_algorithm: str = "HS256"
     jwt_ttl_hours: int = 8
 
+    # ── Database ───────────────────────────────────────────────────────
     database_url: str | None = None
 
+    # ── Prognosis (Leadway legacy) ─────────────────────────────────────
+    # Base URL + a service-account username/password used for server-to-server
+    # calls (e.g. enrollee verify). Provider sign-in re-uses the same base URL
+    # but authenticates with the individual provider's own credentials.
     prognosis_base_url: str = "https://prognosis-api.leadwayhealth.com"
-    prognosis_api_key: str | None = None
+    prognosis_username: str | None = None
+    prognosis_password: str | None = None
 
-    wellahealth_base_url: str = "https://staging.wellahealth.com/v1"
-    wellahealth_api_key: str | None = None
+    # ── WellaHealth (acute fulfilment partner) ─────────────────────────
+    # Basic auth with client_id:client_secret + a Partner-Code header.
+    wellahealth_base_url: str = "https://api.wellahealth.com"
+    wellahealth_client_id: str | None = None
+    wellahealth_client_secret: str | None = None
+    wellahealth_partner_code: str | None = None
 
+    # ── Google Maps ────────────────────────────────────────────────────
     google_maps_api_key: str | None = None
 
+    # ── WhatsApp bot + routed numbers ──────────────────────────────────
     whatsapp_bot_url: str = "https://leadway-whatsapp-bot.onrender.com/api"
     whatsapp_number_acute_lagos: str = ""
     whatsapp_number_chronic: str = ""
 
+    # ── Anthropic (AI drug classification) ─────────────────────────────
     anthropic_api_key: str | None = None
 
-    # Parent-app handoff (see /auth/session-exchange). Leave blank to disable.
+    # ── Parent-app embed handoff ───────────────────────────────────────
     embed_shared_secret: str | None = None
 
+    # ── CORS ───────────────────────────────────────────────────────────
     cors_origins: str = "*"
 
 

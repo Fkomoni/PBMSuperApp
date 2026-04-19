@@ -2,12 +2,14 @@
 # Creates: one Postgres DB, one FastAPI web service, one static-site frontend.
 #
 # To deploy:
-#   1. Push this file to main (or your chosen branch).
-#   2. In the Render dashboard → "Blueprints" → "New Blueprint Instance",
-#      pick this repo and the branch.
-#   3. After first deploy, SSH into the backend service and run:
-#         python seed_provider.py doctor@clinic.com "Dr Jane Doe" "somePw123!"
-#      (or hit POST /api/v1/providers/register once, then disable that route.)
+#   1. Push this file to the branch you want Render to track.
+#   2. Render dashboard → "Blueprints" → "New Blueprint Instance", pick this
+#      repo + branch.
+#   3. On first deploy, set every `sync: false` var in the API service's
+#      Environment tab — Render keeps them encrypted.
+#   4. Open the API service's Shell and create the first admin account:
+#         python seed_provider.py admin@leadway.com "PBM Admin" "StrongPw123!"
+#      (real providers auto-provision on first Prognosis sign-in.)
 
 databases:
   - name: rxhub-db
@@ -25,6 +27,7 @@ services:
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:
+      # ── App / JWT ─────────────────────────────────────────────────
       - key: ENVIRONMENT
         value: production
       - key: API_PREFIX
@@ -35,30 +38,54 @@ services:
         value: HS256
       - key: JWT_TTL_HOURS
         value: "8"
+
+      # ── Database ─────────────────────────────────────────────────
       - key: DATABASE_URL
         fromDatabase:
           name: rxhub-db
           property: connectionString
+
+      # ── CORS: comma-separated. Tighten to your portal URL in prod. ──
       - key: CORS_ORIGINS
         value: https://rxhub-provider-portal.onrender.com
-      - key: GOOGLE_MAPS_API_KEY
-        sync: false
+
+      # ── Prognosis (service account: base URL + username + password) ──
       - key: PROGNOSIS_BASE_URL
         value: https://prognosis-api.leadwayhealth.com
-      - key: PROGNOSIS_API_KEY
+      - key: PROGNOSIS_USERNAME
         sync: false
+      - key: PROGNOSIS_PASSWORD
+        sync: false
+
+      # ── WellaHealth (Basic auth client_id:client_secret + Partner-Code) ──
       - key: WELLAHEALTH_BASE_URL
-        value: https://staging.wellahealth.com/v1
-      - key: WELLAHEALTH_API_KEY
+        value: https://api.wellahealth.com
+      - key: WELLAHEALTH_CLIENT_ID
         sync: false
+      - key: WELLAHEALTH_CLIENT_SECRET
+        sync: false
+      - key: WELLAHEALTH_PARTNER_CODE
+        sync: false
+
+      # ── Google Maps (Places + Geocoding) ─────────────────────────
+      - key: GOOGLE_MAPS_API_KEY
+        sync: false
+
+      # ── WhatsApp bot + routed numbers ────────────────────────────
       - key: WHATSAPP_BOT_URL
         value: https://leadway-whatsapp-bot.onrender.com/api
       - key: WHATSAPP_NUMBER_ACUTE_LAGOS
         sync: false
       - key: WHATSAPP_NUMBER_CHRONIC
         sync: false
+
+      # ── Anthropic (AI drug classification) ───────────────────────
       - key: ANTHROPIC_API_KEY
         sync: false
+
+      # ── Embed handoff from a parent app the provider already signed into ──
+      - key: EMBED_SHARED_SECRET
+        generateValue: true
 
   - type: web
     name: rxhub-provider-portal

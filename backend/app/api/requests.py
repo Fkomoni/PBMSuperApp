@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -14,6 +15,10 @@ from app.schemas.provider import (
     TrackingEvent as TrackingEventSchema,
     TrackingOut,
 )
+from app.services import wellahealth
+from app.services.wellahealth import WellaHealthError
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/medication-requests", tags=["requests"])
 
@@ -115,6 +120,35 @@ async def submit(
     db.add(req)
     db.commit()
     db.refresh(req)
+
+    # Fire-and-safe-fail dispatch to WellaHealth when the routing matrix
+    # points outside Leadway PBM. Failure here logs + appends a warn event
+    # but must NOT fail the submission — the provider already has a receipt.
+    if route.get("channel") == "wellahealth":
+        serialized = _serialize(req)
+        try:
+            wella_resp = await wellahealth.dispatch_fulfilment(serialized)
+            db.add(TrackingEvent(
+                request_id=req.id,
+                label=f"Sent to WellaHealth (ref {wella_resp.get('reference') or wella_resp.get('id') or '—'})",
+                kind="done",
+                icon="send",
+                at=datetime.now(timezone.utc),
+            ))
+            req.status = "routed"
+        except WellaHealthError as e:
+            logger.warning("WellaHealth dispatch failed for %s: %s", req.id, e)
+            db.add(TrackingEvent(
+                request_id=req.id,
+                label="Awaiting retry of WellaHealth dispatch",
+                kind="warn",
+                icon="alert-triangle",
+                note=str(e),
+                at=datetime.now(timezone.utc),
+            ))
+        db.commit()
+        db.refresh(req)
+
     return MedicationRequestOut(**_serialize(req))
 
 

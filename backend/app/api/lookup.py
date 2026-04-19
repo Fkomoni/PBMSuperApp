@@ -1,14 +1,34 @@
-from fastapi import APIRouter, Depends, Query
+import logging
 
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+
+from app.core.config import settings
 from app.core.security import current_provider
-from app.services import icd10, places
+from app.services import icd10, places, prognosis
+from app.services.prognosis import PrognosisAuthError
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/lookup", tags=["lookup"], dependencies=[Depends(current_provider)])
 
 
 @router.get("/enrollee")
 async def enrollee(enrollee_id: str = Query(..., alias="enrollee_id")):
-    """Fetch enrollee details. TODO: call Prognosis enrollee lookup."""
+    """Verify enrollee against Prognosis. Requires PROGNOSIS_USERNAME /
+    PASSWORD. Falls back to a stub in dev when those aren't configured so
+    the frontend flow can still be clicked through.
+    """
+    if settings.prognosis_username and settings.prognosis_password:
+        try:
+            data = await prognosis.verify_enrollee(enrollee_id)
+        except PrognosisAuthError as e:
+            logger.warning("Prognosis verify failed: %s", e)
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
+        if data is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Enrollee not found")
+        return data
+
+    # Dev fallback (no Prognosis credentials set).
     return {
         "enrollee_id": enrollee_id,
         "name": "Adaeze Okafor",

@@ -1,15 +1,11 @@
-"""Prognosis Provider-Login proxy.
+"""Prognosis Provider-Login proxy + service-account calls (enrollee verify).
 
-ADAPT: three touch-points below if your Prognosis API differs from the
-defaults. Everything else reads its config from pydantic-settings.
-
-The wrapper always returns a normalized `PrognosisProvider` dataclass:
-    provider_id, name, email, prognosis_id, facility, phone, extra
-
-The API layer upserts a local Provider row against that, then mints a JWT.
+ADAPT: adapter points are clearly marked. Everything else reads config from
+pydantic-settings.
 """
 from __future__ import annotations
 
+import base64
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -136,3 +132,84 @@ async def provider_login(email: str, password: str) -> PrognosisProvider:
             break
 
     return _from_response(payload, fallback_email=email)
+
+
+# ==================================================================
+# Service-account calls (e.g. enrollee verify)
+# Prognosis uses the backend's username + password to authorize these.
+# ==================================================================
+
+def _service_auth_headers() -> dict:
+    if not (settings.prognosis_username and settings.prognosis_password):
+        raise PrognosisAuthError("PROGNOSIS_USERNAME / PROGNOSIS_PASSWORD not configured")
+    raw = f"{settings.prognosis_username}:{settings.prognosis_password}".encode()
+    encoded = base64.b64encode(raw).decode()
+    return {
+        "Authorization": f"Basic {encoded}",
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+    }
+
+
+# ADAPT #4 — path + query shape for member verify. Common Prognosis shapes:
+#   GET  /api/Enrollee/Verify/{id}
+#   POST /api/Enrollee/Verify    body: {"EnrolleeId": "..."}
+# Switch the call below to match your exact endpoint.
+ENROLLEE_VERIFY_PATH_TEMPLATE = "/api/Enrollee/Verify/{enrollee_id}"
+
+
+# ADAPT #5 — how the Prognosis enrollee response maps to the shape the
+# frontend renders (see schemas/provider.py::EnrolleeOut). Edit here.
+def _enrollee_from_response(data: dict) -> dict:
+    return {
+        "enrollee_id":  data.get("EnrolleeId")   or data.get("enrollee_id")  or data.get("MemberId"),
+        "name":         data.get("FullName")     or data.get("name")         or f"{data.get('FirstName','')} {data.get('LastName','')}".strip(),
+        "scheme":       data.get("Scheme")       or data.get("PlanName")     or data.get("scheme"),
+        "company":      data.get("CompanyName")  or data.get("Employer")     or data.get("company"),
+        "age":          data.get("Age")          or data.get("age"),
+        "phone":        data.get("PhoneNumber")  or data.get("Mobile")       or data.get("phone"),
+        "email":        data.get("Email")        or data.get("email"),
+        "state":        data.get("State")        or data.get("state"),
+        "status":       data.get("Status")       or data.get("status"),
+        "expiry_date":  data.get("PlanEndDate")  or data.get("ExpiryDate")   or data.get("expiry_date"),
+        "flag":         (data.get("Flag") or data.get("RiskFlag") or "").lower() or None,
+        "flag_reason":  data.get("FlagReason")   or data.get("flag_reason"),
+        "vip":          data.get("IsVIP")        or data.get("vip")          or False,
+        "medications":  data.get("ChronicMedications") or data.get("medications") or [],
+    }
+
+
+async def verify_enrollee(enrollee_id: str) -> dict | None:
+    """Call Prognosis member-verify. Returns a dict matching EnrolleeOut, or
+    None if Prognosis can't find the member. Raises PrognosisAuthError on
+    configuration / transport failure.
+    """
+    path = ENROLLEE_VERIFY_PATH_TEMPLATE.format(enrollee_id=enrollee_id)
+    url = settings.prognosis_base_url.rstrip("/") + path
+    headers = _service_auth_headers()
+
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            resp = await client.get(url, headers=headers)
+    except httpx.HTTPError as e:
+        raise PrognosisAuthError(f"Prognosis unreachable: {e}") from e
+
+    if resp.status_code == 404:
+        return None
+    try:
+        data = resp.json()
+    except Exception:
+        raise PrognosisAuthError(f"Prognosis returned non-JSON: {resp.text[:200]}")
+
+    if resp.status_code >= 400:
+        raise PrognosisAuthError(f"Prognosis error {resp.status_code}: {data}")
+
+    payload = data if isinstance(data, dict) else {}
+    for k in ("data", "Data", "enrollee", "Enrollee", "result", "Result"):
+        if isinstance(payload.get(k), dict):
+            payload = payload[k]
+            break
+
+    if not payload or not (payload.get("EnrolleeId") or payload.get("enrollee_id") or payload.get("MemberId")):
+        return None
+    return _enrollee_from_response(payload)
