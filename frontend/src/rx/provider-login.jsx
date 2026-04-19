@@ -64,7 +64,7 @@ function ProviderLogin({ onBack, onSignedIn }) {
         <button className="login__back" onClick={onBack}><RxIcon name="arrow-left" size={14} /> Back to role picker</button>
         <div>
           <div className="login__quote">Prescribe it.<br /><span className="accent">We'll handle the rest.</span></div>
-          <div className="login__testimonial">Leadway RxHub pharmacy network covers 24 states and is fulfilled by vetted partner pharmacies under a single tariff. Your orders are auto-routed to the nearest fulfilment channel.</div>
+          <div className="login__testimonial">Leadway RxHub pharmacy network covers 24 states and is fulfilled by vetted partner pharmacies. Your orders are auto-routed to the nearest fulfilment channel.</div>
         </div>
         <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 12, color: "rgba(255,255,255,.5)", fontSize: 12 }}>
           <div style={{ width: 34, height: 34, borderRadius: 8, background: "#fff", overflow: "hidden" }}>
@@ -112,11 +112,7 @@ function ProviderLogin({ onBack, onSignedIn }) {
           {loading ? <><RxIcon name="loader-2" size={16} /> Signing in…</> : <>Sign in <RxIcon name="arrow-right" size={16} /></>}
         </button>
 
-        <div style={{ marginTop: 18, padding: "12px 14px", background: "#fafafc", border: "1px dashed var(--rx-line)", borderRadius: 10, fontSize: 11.5, color: "var(--rx-muted)", textAlign: "center", lineHeight: 1.5 }}>
-          <RxIcon name="shield-check" size={13} /> Prognosis provider credentials · 8-hour sessions · MFA available on request
-        </div>
-
-        <div className="login__help">
+        <div className="login__help" style={{ marginTop: 18 }}>
           Support: <a href="tel:+2347080627051">07080627051</a> / <a href="tel:+2342012801051">02012801051</a> <span className="login__help__pill">24/7</span>
         </div>
       </main>

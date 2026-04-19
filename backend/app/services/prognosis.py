@@ -101,8 +101,6 @@ async def provider_login(email: str, password: str) -> PrognosisProvider:
 
     url = settings.prognosis_base_url.rstrip("/") + LOGIN_PATH
     headers = {"Accept": "application/json", "Content-Type": "application/json"}
-    if settings.prognosis_api_key:
-        headers["Authorization"] = f"Bearer {settings.prognosis_api_key}"
 
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
