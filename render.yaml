@@ -28,6 +28,8 @@ services:
     healthCheckPath: /health
     envVars:
       # ── App / JWT ─────────────────────────────────────────────────
+      - key: PYTHON_VERSION
+        value: "3.12.6"
       - key: ENVIRONMENT
         value: production
       - key: API_PREFIX
