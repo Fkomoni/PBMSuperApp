@@ -6,7 +6,6 @@ const PROVIDER_NAV = [
   { key: "enrollee", label: "Member lookup", icon: "user-search" },
   { key: "new", label: "New prescription", icon: "file-plus-2" },
   { key: "requests", label: "My requests", icon: "clipboard-list" },
-  { key: "resources", label: "Resources", icon: "book-open" },
 ];
 
 const ADMIN_NAV = [
@@ -18,7 +17,6 @@ function ProviderShell({ session, onSignOut, page, onNav, children }) {
   const nav = isAdmin ? [...PROVIDER_NAV, ...ADMIN_NAV] : PROVIDER_NAV;
   const current = nav.find(n => n.key === page) || nav[0];
   const name = session?.name || session?.full_name || session?.email || "Provider";
-  const id = session?.provider_id || session?.prognosis_id || session?.email || "—";
 
   return (
     <div className="mshell">
@@ -47,7 +45,6 @@ function ProviderShell({ session, onSignOut, page, onNav, children }) {
 
         <div className="mside__me">
           <div className="mside__me__name">{name}</div>
-          <div className="mside__me__id">{id}</div>
           <button className="mside__signout" onClick={onSignOut}>
             <RxIcon name="log-out" size={13} /> Sign out
           </button>

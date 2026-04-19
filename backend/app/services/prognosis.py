@@ -168,14 +168,29 @@ async def _auth_headers(force_refresh: bool = False) -> dict:
 async def _bearer_request(method: str, path: str, *, params: dict | None = None, body: dict | None = None) -> tuple[int, Any]:
     """Call a Prognosis endpoint with the service Bearer. On 401 we refresh
     the token once and retry — transparent to callers.
+
+    `params` values are appended to the URL *without* URL-encoding slashes.
+    Prognosis's enrollee IDs look like "21000645/0" and their server doesn't
+    decode %2F back to /.
     """
+    from urllib.parse import quote
+
     url = settings.prognosis_base_url.rstrip("/") + path
+    if params:
+        parts = []
+        for k, v in params.items():
+            if v is None:
+                continue
+            # safe="/" so slashes in enrollee IDs survive intact
+            parts.append(f"{quote(str(k), safe='')}={quote(str(v), safe='/')}")
+        if parts:
+            url = url + ("&" if "?" in url else "?") + "&".join(parts)
 
     for attempt in (0, 1):
         headers = await _auth_headers(force_refresh=(attempt == 1))
         try:
             async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-                resp = await client.request(method, url, params=params, json=body, headers=headers)
+                resp = await client.request(method, url, json=body, headers=headers)
         except httpx.HTTPError as e:
             raise PrognosisAuthError(f"Transport failure calling {path}: {e}") from e
 
@@ -188,6 +203,7 @@ async def _bearer_request(method: str, path: str, *, params: dict | None = None,
             data = resp.json()
         except Exception:
             data = {"raw": resp.text}
+        logger.info("Prognosis %s %s → HTTP %s · body=%s", method, path, resp.status_code, str(data)[:600])
         return resp.status_code, data
 
     raise PrognosisAuthError("Prognosis returned 401 twice in a row — check PROGNOSIS_USERNAME/PASSWORD")
@@ -308,11 +324,19 @@ async def verify_enrollee(enrollee_id: str) -> dict | None:
                 break
     if isinstance(payload, list):
         payload = payload[0] if payload else {}
-    if not isinstance(payload, dict):
+    if not isinstance(payload, dict) or not payload:
         return None
-    if not (payload.get("EnrolleeId") or payload.get("enrollee_id") or payload.get("MemberId") or payload.get("EnrolleeID")):
-        return None
-    return _enrollee_from_response(payload)
+
+    mapped = _enrollee_from_response(payload)
+    # Be permissive — any identifier OR any name field counts as a hit. Backfill
+    # the enrollee_id from the request if the response didn't echo it.
+    if not mapped.get("enrollee_id"):
+        mapped["enrollee_id"] = enrollee_id
+    if mapped.get("name") or mapped.get("first_name") or mapped.get("last_name"):
+        return mapped
+    logger.warning("Prognosis enrollee %s returned a payload with no recognisable name: %s",
+                   enrollee_id, str(payload)[:400])
+    return None
 
 
 # ══════════════════════════════════════════════════════════════════════

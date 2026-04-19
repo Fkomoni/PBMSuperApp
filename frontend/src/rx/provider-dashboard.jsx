@@ -143,30 +143,6 @@ function ProviderDashboard({ session, onNav }) {
           )}
         </div>
       </section>
-
-      <section className="msection">
-        <div className="msection__head"><h2>How orders are routed</h2></div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 14 }}>
-          {[
-            { icon: "map-pin", title: "Acute · Lagos · Mon–Fri", sub: "→ Leadway PBM (WhatsApp #1) for same-day dispatch" },
-            { icon: "clock", title: "Acute · Lagos · weekends", sub: "→ WellaHealth partner pharmacy network" },
-            { icon: "globe-2", title: "Acute · outside Lagos", sub: "→ WellaHealth or onboarded partner pharmacy" },
-            { icon: "repeat", title: "Chronic · anywhere", sub: "→ Leadway PBM Super App (WhatsApp #2)" },
-            { icon: "layers", title: "Mixed (acute + chronic)", sub: "→ Leadway PBM (single channel, split fulfilment)" },
-            { icon: "heart-pulse", title: "Hormonal / cancer / autoimmune / fertility", sub: "→ Leadway PBM (Lagos #1, outside #2)" },
-          ].map((r, i) => (
-            <div key={i} className="mcard" style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-              <div style={{ width: 36, height: 36, borderRadius: 10, background: "#fff3ea", color: "#b45309", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                <RxIcon name={r.icon} size={18} />
-              </div>
-              <div>
-                <div style={{ fontWeight: 700, fontSize: 13.5 }}>{r.title}</div>
-                <div style={{ fontSize: 12.5, color: "var(--rx-muted)", marginTop: 3, lineHeight: 1.5 }}>{r.sub}</div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
     </>
   );
 }

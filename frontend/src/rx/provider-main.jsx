@@ -77,7 +77,6 @@ function ProviderApp() {
   else if (page === "enrollee") body = <ProviderEnrollee onStartRequest={m => go("new", { member: m })} />;
   else if (page === "new") body = <ProviderNewRequest initialMember={startMember} onSubmitted={r => go("requests", { focus: r?.id || r?.request_id })} />;
   else if (page === "requests") body = <ProviderRequests focus={focus} />;
-  else if (page === "resources") body = <ProviderResources />;
   else if (page === "admin" && session?.role === "admin") body = <AdminConsole />;
   else body = <ProviderDashboard session={session} onNav={go} />;
 
@@ -85,34 +84,6 @@ function ProviderApp() {
     <ProviderShell session={session} onSignOut={onSignOut} page={page} onNav={go}>
       {body}
     </ProviderShell>
-  );
-}
-
-function ProviderResources() {
-  const cards = [
-    { icon: "book-open", title: "Leadway formulary", sub: "Current tariff, covered brands, and scheme-specific rules." },
-    { icon: "file-text", title: "Claims & submission guide", sub: "How prescriptions become claims and when you get paid." },
-    { icon: "route", title: "Routing rules", sub: "Acute vs. chronic, Lagos vs. outside, specialised cohorts." },
-    { icon: "headphones", title: "Contact centre", sub: "07080627051 / 02012801051 · 24/7 dedicated provider line." },
-  ];
-  return (
-    <>
-      <div className="mpage__head">
-        <h1>Resources</h1>
-        <p>Handy links and guides for the Leadway provider network.</p>
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 14 }}>
-        {cards.map((c, i) => (
-          <div key={i} className="res">
-            <div style={{ width: 40, height: 40, borderRadius: 10, background: "var(--rx-blue-bg)", color: "var(--rx-blue)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <RxIcon name={c.icon} size={20} />
-            </div>
-            <h3>{c.title}</h3>
-            <div className="res__body">{c.sub}</div>
-          </div>
-        ))}
-      </div>
-    </>
   );
 }
 

@@ -18,14 +18,14 @@ async def enrollee(enrollee_id: str = Query(..., alias="enrollee_id")):
     PASSWORD. Falls back to a stub in dev when those aren't configured so
     the frontend flow can still be clicked through.
     """
-    if settings.prognosis_username and settings.prognosis_password:
+    if (settings.prognosis_username and settings.prognosis_password) or settings.prognosis_auth_header:
         try:
             data = await prognosis.verify_enrollee(enrollee_id)
         except PrognosisAuthError as e:
             logger.warning("Prognosis verify failed: %s", e)
-            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Prognosis verify failed: {e}")
         if data is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Enrollee not found")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Enrollee '{enrollee_id}' not found on Prognosis")
         return data
 
     # Dev fallback (no Prognosis credentials set).
