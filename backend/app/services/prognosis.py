@@ -282,28 +282,54 @@ async def provider_login(email: str, password: str) -> PrognosisProvider:
 # ══════════════════════════════════════════════════════════════════════
 
 def _enrollee_from_response(data: dict) -> dict:
-    first = data.get("FirstName") or data.get("Firstname") or data.get("firstname") or ""
-    last  = data.get("LastName")  or data.get("Lastname")  or data.get("lastname")  or data.get("Surname") or ""
-    full = data.get("FullName") or data.get("Name") or data.get("name") or f"{first} {last}".strip()
+    """Map Prognosis's `Member_*` response to the shape the frontend renders.
+    Prognosis uses `Member_FirstName`, `Member_Surname`, `Member_othernames`,
+    `Member_DateOfBirth`, `Member_Age`, `Member_MemberUniqueID`, etc. We also
+    accept the plain (non-prefixed) keys for forward-compat.
+    """
+
+    def pick(*keys):
+        for k in keys:
+            v = data.get(k)
+            if v not in (None, ""):
+                return v
+        return None
+
+    first = pick("Member_FirstName", "FirstName", "Firstname", "firstname") or ""
+    last  = pick("Member_Surname", "LastName", "Lastname", "lastname", "Surname") or ""
+    other = pick("Member_othernames", "OtherNames", "MiddleName") or ""
+
+    full = pick("FullName", "Name", "name")
+    if not full:
+        full = " ".join([p for p in (first, other, last) if p]).strip()
+
+    flag_raw = pick("Member_RiskFlag", "Member_Flag", "Flag", "RiskFlag") or ""
     return {
-        "enrollee_id":  data.get("EnrolleeId")   or data.get("EnrolleeID")  or data.get("enrolleeid")   or data.get("MemberId") or data.get("enrollee_id"),
+        "enrollee_id":  pick("Member_MemberUniqueID", "Member_EnrolleeId", "EnrolleeId", "EnrolleeID",
+                             "enrolleeid", "MemberId", "enrollee_id"),
         "name":         full,
-        "first_name":   first or (full.split(" ", 1)[0] if full else ""),
-        "last_name":    last or (full.split(" ", 1)[1] if " " in full else ""),
-        "scheme":       data.get("Scheme")       or data.get("SchemeName")  or data.get("PlanName")     or data.get("scheme"),
-        "company":      data.get("CompanyName")  or data.get("Employer")    or data.get("Company")      or data.get("company"),
-        "age":          data.get("Age")          or data.get("age"),
-        "dob":          data.get("DateOfBirth")  or data.get("DOB")         or data.get("dob"),
-        "gender":       data.get("Gender")       or data.get("gender"),
-        "phone":        data.get("PhoneNumber")  or data.get("Mobile")      or data.get("Phone")        or data.get("phone"),
-        "email":        data.get("Email")        or data.get("email"),
-        "state":        data.get("State")        or data.get("state"),
-        "status":       data.get("Status")       or data.get("EnrolleeStatus") or data.get("status"),
-        "expiry_date":  data.get("PlanEndDate")  or data.get("ExpiryDate")  or data.get("ValidityEndDate") or data.get("expiry_date"),
-        "flag":         (data.get("Flag") or data.get("RiskFlag") or "").lower() or None,
-        "flag_reason":  data.get("FlagReason")   or data.get("flag_reason"),
-        "vip":          data.get("IsVIP")        or data.get("vip")         or False,
-        "medications":  data.get("ChronicMedications") or data.get("medications") or [],
+        "first_name":   first,
+        "last_name":    last,
+        "title":        pick("Member_MemberTitle", "Title"),
+        "scheme":       pick("Member_SchemeName", "Member_Scheme", "Scheme", "SchemeName", "PlanName"),
+        "company":      pick("Member_CompanyName", "Member_Company", "Member_Employer",
+                             "CompanyName", "Employer", "Company"),
+        "age":          pick("Member_Age", "Age"),
+        "dob":          pick("Member_DateOfBirth", "DateOfBirth", "DOB"),
+        "gender":       pick("Member_Gender", "Gender"),
+        "phone":        pick("Member_PhoneNumber", "Member_Mobile", "Member_Phone",
+                             "PhoneNumber", "Mobile", "Phone"),
+        "email":        pick("Member_Email", "Email"),
+        "state":        pick("Member_State", "Member_StateOfResidence", "State"),
+        "status":       pick("Member_Status", "Member_EnrolleeStatus", "Status", "EnrolleeStatus"),
+        "expiry_date":  pick("Member_PlanEndDate", "Member_ValidityEndDate", "Member_ExpiryDate",
+                             "PlanEndDate", "ExpiryDate", "ValidityEndDate"),
+        "flag":         (str(flag_raw).lower() if flag_raw else None),
+        "flag_reason":  pick("Member_FlagReason", "FlagReason"),
+        "vip":          bool(pick("Member_IsVIP", "IsVIP") or False),
+        "medications":  pick("ChronicMedications", "medications") or [],
+        # Keep the raw payload so the frontend can surface anything we missed
+        "_raw": data,
     }
 
 
