@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, Query
 
 from app.core.security import current_provider
+from app.services import icd10, places
 
 router = APIRouter(prefix="/lookup", tags=["lookup"], dependencies=[Depends(current_provider)])
 
@@ -32,36 +33,20 @@ async def enrollee(enrollee_id: str = Query(..., alias="enrollee_id")):
 
 
 @router.get("/diagnoses")
-async def diagnoses(q: str = Query(default="", min_length=0)):
-    """ICD-10 search. TODO: back with the diagnoses table in the DB."""
-    seed = [
-        {"code": "I10", "name": "Essential (primary) hypertension"},
-        {"code": "E11.9", "name": "Type 2 diabetes mellitus without complications"},
-        {"code": "J45.909", "name": "Unspecified asthma, uncomplicated"},
-        {"code": "N18.3", "name": "Chronic kidney disease, stage 3"},
-        {"code": "K21.0", "name": "Gastro-oesophageal reflux disease with oesophagitis"},
-        {"code": "F32.9", "name": "Major depressive disorder, single episode, unspecified"},
-        {"code": "M54.5", "name": "Low back pain"},
-        {"code": "R51", "name": "Headache"},
-    ]
-    q = (q or "").lower()
-    if not q:
-        return seed
-    return [d for d in seed if q in d["code"].lower() or q in d["name"].lower()]
+async def diagnoses(q: str = Query(default="", min_length=0), limit: int = Query(default=20, ge=1, le=100)):
+    """Standard ICD-10 search backed by the embedded catalog in app.services.icd10."""
+    return icd10.search(q, limit=limit)
 
 
 @router.get("/address-autocomplete")
 async def address_autocomplete(input: str = Query(...)):
-    """Google Places autocomplete. TODO: proxy to Google Maps Places API."""
-    if len(input.strip()) < 3:
-        return []
-    return [
-        {"place_id": "stub-1", "description": f"{input} Street, Lagos, Nigeria", "main_text": f"{input} Street", "secondary_text": "Lagos, Nigeria"},
-        {"place_id": "stub-2", "description": f"{input} Close, Victoria Island, Lagos", "main_text": f"{input} Close", "secondary_text": "Victoria Island, Lagos"},
-    ]
+    """Google Places autocomplete (Nigeria-scoped). Falls back to inline stubs
+    when GOOGLE_MAPS_API_KEY is unset so the wizard works in dev.
+    """
+    return await places.autocomplete(input)
 
 
 @router.get("/address-details")
 async def address_details(place_id: str = Query(...)):
-    """Google Geocoding. TODO: proxy to Google Maps."""
-    return {"place_id": place_id, "formatted_address": "1 Marina Road, Lagos, Nigeria", "lat": 6.4550575, "lng": 3.3841664}
+    """Google Place details + geometry. Same fallback behavior as autocomplete."""
+    return await places.details(place_id)

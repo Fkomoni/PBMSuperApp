@@ -33,4 +33,10 @@ def current_provider(creds: HTTPAuthorizationCredentials = Depends(bearer)) -> d
     payload = decode_token(creds.credentials)
     if payload.get("role") != "provider":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Provider role required")
+    if not payload.get("sub"):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token missing subject")
     return payload
+
+
+def provider_id_from(payload: dict) -> str:
+    return payload["sub"]

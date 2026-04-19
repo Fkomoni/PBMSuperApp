@@ -14,12 +14,22 @@ class ProviderOut(BaseModel):
     name: str
     email: EmailStr
     prognosis_id: str | None = None
+    facility: str | None = None
 
 
 class LoginOut(BaseModel):
     token: str
     expires_in: int
     provider: ProviderOut
+
+
+class ProviderRegisterIn(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=8)
+    name: str = Field(min_length=2)
+    prognosis_id: str | None = None
+    facility: str | None = None
+    phone: str | None = None
 
 
 class EnrolleeOut(BaseModel):

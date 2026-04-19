@@ -4,50 +4,77 @@ Implementation of the **Leadway RxHub** design from the Claude Design handoff,
 focused on the **provider journey** (healthcare providers, clinics) signing in,
 looking up members, and sending prescription orders into the Leadway PBM hub.
 
-## What's in this repo
+This repo owns its own backend (FastAPI + Postgres) — you do **not** reuse the
+existing `leadway-rx-api` service. Deploy once from `render.yaml` and you get
+a DB, API, and static frontend.
+
+## Layout
 
 ```
 PBMSuperApp/
-├─ frontend/                  # Static React-via-Babel app (matches RxHub design)
-│  ├─ index.html              # Entry — imports tokens.css + rxhub.css + provider.css
+├─ render.yaml                       # One-click Render blueprint (DB + API + static site)
+├─ frontend/                         # Static React-via-Babel app
+│  ├─ index.html                     # Loads config.js → backend URL
+│  ├─ config.js                      # EDIT per environment: window.__API_BASE__ = "..."
 │  ├─ styles/
-│  │  ├─ tokens.css           # Ported from Leadway design manual
-│  │  ├─ app.css              # PBM staff portal styles (shared)
-│  │  ├─ rxhub.css            # Softer consumer-facing RxHub shell
-│  │  └─ provider.css         # Provider-specific additions (stepper, drug row, drawer)
+│  │  ├─ tokens.css  app.css  rxhub.css  provider.css
 │  ├─ src/rx/
-│  │  ├─ rxhub-ui.jsx         # Shared primitives: RxIcon, RxBadge, RxSeg, RxField, RxBanner, RxSupport
-│  │  ├─ provider-api.js      # Thin fetch client for the backend endpoints
-│  │  ├─ provider-login.jsx   # Hub + email/password login (matches RxHub LoginPanel)
-│  │  ├─ provider-shell.jsx   # Sidebar + topbar + mobile bottom nav
-│  │  ├─ provider-dashboard.jsx  # Stats + recent requests + routing rules
-│  │  ├─ provider-enrollee.jsx   # Member lookup + cover detail
-│  │  ├─ provider-new-request.jsx # 4-step wizard: member → diagnosis → meds → review
-│  │  ├─ provider-requests.jsx    # List + tracking drawer
-│  │  └─ provider-main.jsx        # Top-level router
-│  ├─ assets/leadway-logo.jpg
-│  └─ serve.py                # `python serve.py 5173` for local dev
-└─ backend/                    # FastAPI skeleton with the full API surface the frontend calls
+│  │  ├─ rxhub-ui.jsx                # Shared primitives (RxIcon, RxBadge, …)
+│  │  ├─ provider-api.js             # Fetch client
+│  │  ├─ provider-login.jsx          # Hub + email/password login
+│  │  ├─ provider-shell.jsx          # Sidebar + topbar + mobile nav
+│  │  ├─ provider-dashboard.jsx      # Stats + recent requests + routing rules
+│  │  ├─ provider-enrollee.jsx       # Member lookup + cover detail
+│  │  ├─ provider-new-request.jsx    # 4-step wizard (member → dx → meds → review)
+│  │  ├─ provider-requests.jsx       # List + tracking drawer
+│  │  └─ provider-main.jsx           # Router
+│  └─ serve.py                       # `python serve.py 5173` for local dev
+└─ backend/                           # FastAPI + SQLAlchemy
    ├─ requirements.txt
    ├─ .env.example
+   ├─ seed_provider.py               # CLI to create/reset a provider account
    └─ app/
-      ├─ main.py               # FastAPI app + CORS + router wiring (prefix /api/v1)
+      ├─ main.py                     # FastAPI + CORS + lifespan (init_db)
+      ├─ models.py                   # SQLAlchemy: Provider, MedicationRequest, Item, TrackingEvent
       ├─ core/
-      │  ├─ config.py          # pydantic-settings (Prognosis, WellaHealth, GMaps, JWT)
-      │  ├─ security.py        # JWT create/verify + current_provider dep
-      │  └─ routing.py         # Acute/chronic · Lagos/outside routing matrix
-      ├─ schemas/provider.py
+      │  ├─ config.py                # pydantic-settings (JWT, DB, integrations)
+      │  ├─ db.py                    # Engine + SessionLocal + Base + init_db
+      │  ├─ passwords.py             # bcrypt hash / verify
+      │  ├─ routing.py               # Acute/chronic · Lagos/outside routing matrix
+      │  └─ security.py              # JWT create/verify + current_provider dep
+      ├─ schemas/provider.py         # Pydantic request/response shapes
+      ├─ services/
+      │  ├─ icd10.py                 # Standard ICD-10 catalog (~250 codes) + search
+      │  └─ places.py                # Google Places / Geocoding proxy w/ dev stubs
       └─ api/
-         ├─ auth.py            # POST /login  (TODO: proxy Prognosis ProviderLogIn)
-         ├─ lookup.py          # enrollee, diagnoses, address autocomplete/details
-         ├─ medications.py     # drug search (TODO: wire WellaHealth tariff + drug_master)
-         └─ requests.py        # submit + list + tracking (in-memory store for now)
+         ├─ auth.py                  # POST /login  +  POST /providers/register
+         ├─ lookup.py                # /lookup/enrollee · /lookup/diagnoses · /lookup/address-*
+         ├─ medications.py           # /medications/search
+         └─ requests.py              # /medication-requests  (submit · list · tracking)
 ```
 
-## Routing rules implemented
+## API surface (prefix `/api/v1`)
 
-Both the frontend's **Routing preview** (step 4 of the new-request wizard) and
-the backend's `core/routing.py` share the same matrix:
+```
+POST /login                              → { token, expires_in, provider }
+POST /providers/register                 → { provider_id, name, email, … }   (gate in prod)
+
+GET  /lookup/enrollee?enrollee_id=       → member cover + medications
+GET  /lookup/diagnoses?q=[&limit=]       → [{ code, name }]   ICD-10 catalog
+GET  /lookup/address-autocomplete?input= → [{ place_id, description, main_text, … }]
+GET  /lookup/address-details?place_id=   → { formatted_address, lat, lng, … }
+
+GET  /medications/search?q=              → [{ drug_id, name, generic, unit_price, classification }]
+
+POST /medication-requests                → submits a prescription, returns { id, status, route, … }
+GET  /medication-requests                → your recent requests (provider-scoped)
+GET  /medication-requests/{id}/tracking  → { request_id, events: [{ label, at, kind, icon, note }] }
+```
+
+All endpoints except `/login` and `/providers/register` require
+`Authorization: Bearer <JWT>`.
+
+## Routing matrix
 
 | Classification | Location | Time | Channel |
 | --- | --- | --- | --- |
@@ -60,75 +87,104 @@ the backend's `core/routing.py` share the same matrix:
 | Hormonal · Cancer · Autoimmune · Fertility | Lagos | any | Leadway PBM WhatsApp #1 |
 | Hormonal · Cancer · Autoimmune · Fertility | Outside Lagos | any | Leadway PBM WhatsApp #2 |
 
-## API surface (prefix: `/api/v1`)
+Matrix lives in `backend/app/core/routing.py` (backend enforcement) and
+`frontend/src/rx/provider-new-request.jsx::previewRoute` (step-4 preview).
 
-Matches the existing Leadway Rx Routing Hub endpoints so the frontend can point
-at either backend:
+## ICD-10 diagnosis catalog
 
-```
-POST /login
-GET  /lookup/enrollee?enrollee_id=
-GET  /lookup/diagnoses?q=
-GET  /medications/search?q=
-GET  /lookup/address-autocomplete?input=
-GET  /lookup/address-details?place_id=
-POST /medication-requests
-GET  /medication-requests
-GET  /medication-requests/{id}/tracking
-```
+Embedded in `backend/app/services/icd10.py` — ~250 standard ICD-10 codes
+covering infectious, neoplasms, endocrine/metabolic (incl. all common diabetes
+codes), mental health, neurology, circulatory, respiratory, digestive, skin,
+musculoskeletal, renal, obstetrics, symptoms (R-codes), and Z-codes.
+`GET /lookup/diagnoses?q=<query>&limit=<n>` ranks exact-code → prefix-code →
+substring matches. Swap in the full WHO catalog (~70k codes) later by loading
+from a CSV into a `diagnoses` table.
 
 ## Running locally
 
-### Backend
-
 ```bash
+# 1. Backend
 cd backend
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env   # fill in Prognosis / WellaHealth / Google / WhatsApp / JWT secrets
+cp .env.example .env   # edit if you want Google/Prognosis/Wella keys
+python seed_provider.py doctor@clinic.com "Dr Jane Doe" "somePw123!"
 uvicorn app.main:app --reload --port 8000
-```
 
-Health check: <http://localhost:8000/health> · OpenAPI: <http://localhost:8000/docs>
-
-### Frontend
-
-```bash
+# 2. Frontend (new terminal)
 cd frontend
 python serve.py 5173
 ```
 
-Open <http://localhost:5173>. The page reads the backend URL from
-`window.__API_BASE__`; override it in a small `config.js` before the bundle, or
-point at the existing deployment:
+Open <http://localhost:5173>, click **Sign in**, use `doctor@clinic.com` /
+`somePw123!`. `frontend/config.js` defaults to `http://localhost:8000/api/v1`
+when run locally.
 
-```html
-<script>window.__API_BASE__ = "https://leadway-rx-api.onrender.com/api/v1";</script>
+## Deploying to Render (one click from `render.yaml`)
+
+1. Push this repo; make sure `render.yaml` is on the deployable branch.
+2. Render dashboard → **Blueprints → New Blueprint Instance** → pick this repo.
+3. Render provisions:
+   - `rxhub-db` (Postgres)
+   - `rxhub-provider-api` (FastAPI — auto-creates tables on first boot)
+   - `rxhub-provider-portal` (static site)
+4. In the API service's **Environment**, fill in the keys marked `sync: false`
+   (Google Maps, Prognosis, WellaHealth, WhatsApp numbers, Anthropic) once you
+   have them. The API boots without them — integrations that need them fall
+   back to stubs.
+5. In the API service's **Shell**, create the first provider account:
+   ```bash
+   python seed_provider.py doctor@clinic.com "Dr Jane Doe" "somePw123!"
+   ```
+   Or hit `POST /api/v1/providers/register` once, then gate the endpoint.
+6. Edit `frontend/config.js` so `window.__API_BASE__` points at the deployed
+   API (`https://rxhub-provider-api.onrender.com/api/v1`), push, and the
+   static site redeploys automatically.
+7. Update `CORS_ORIGINS` on the API service to the static site's URL (e.g.
+   `https://rxhub-provider-portal.onrender.com`) — pre-set in `render.yaml`
+   but you can widen to `*` in staging.
+
+## Provider login link
+
+Once deployed, providers go to:
+
+```
+https://rxhub-provider-portal.onrender.com/
 ```
 
-## Wiring TODOs (for production)
+Click **Sign in**, enter the email + password set by the PBM admin (via
+`seed_provider.py` or a gated `/providers/register` call).
 
-1. **Prognosis ProviderLogIn** — `backend/app/api/auth.py` currently accepts any
-   6-char password so the UI is exercised end-to-end. Replace `login()` with an
-   httpx call to `settings.prognosis_base_url`.
-2. **Postgres persistence** — `backend/app/api/requests.py` uses an in-memory
-   dict. Swap in SQLAlchemy and the `providers`, `medication_requests`,
-   `medication_request_items`, `classification_results`, `routing_decisions`,
-   `wellahealth_api_logs`, `whatsapp_dispatch_logs`, `medication_audit_logs`
-   tables.
-3. **WellaHealth tariff** — `medications.search` should read from the
-   `drug_master` table with a WellaHealth fallback (see
-   `settings.wellahealth_base_url`).
-4. **Google Maps** — `lookup/address-*` endpoints currently return stubs. Proxy
-   to Google Places & Geocoding APIs using `settings.google_maps_api_key`.
-5. **WhatsApp dispatch** — on request submission, call the WhatsApp bot
-   (`settings.whatsapp_bot_url`) using the appropriate routed number.
-6. **Anthropic drug classification** — run `classification_hint == "auto"` items
-   through Claude to pick acute/chronic.
+## Environment variables the backend reads
+
+See `backend/.env.example`. Summary:
+
+| Variable | Purpose |
+| --- | --- |
+| `JWT_SECRET` | HMAC key for signing provider tokens (auto-generated on Render) |
+| `JWT_TTL_HOURS` | Default 8h |
+| `DATABASE_URL` | Postgres URL (provisioned by Render) |
+| `CORS_ORIGINS` | Comma-separated origins; `*` for dev |
+| `GOOGLE_MAPS_API_KEY` | Places autocomplete + geocoding (optional — stubs when empty) |
+| `PROGNOSIS_BASE_URL`, `PROGNOSIS_API_KEY` | Future: enrollee lookup |
+| `WELLAHEALTH_BASE_URL`, `WELLAHEALTH_API_KEY` | Future: tariff + dispatch |
+| `WHATSAPP_BOT_URL`, `WHATSAPP_NUMBER_ACUTE_LAGOS`, `WHATSAPP_NUMBER_CHRONIC` | Future: dispatch on routing |
+| `ANTHROPIC_API_KEY` | Future: AI drug classification for `classification: "auto"` |
+
+## Next wiring steps (in order)
+
+1. **Prognosis enrollee lookup** — `backend/app/api/lookup.py::enrollee` is a
+   stub. Replace with an httpx call to `settings.prognosis_base_url`.
+2. **WellaHealth tariff feed** — `backend/app/api/medications.py::search` is a
+   stub. Add a `drug_master` table (or cache) and refresh from WellaHealth.
+3. **WhatsApp dispatch** — on `POST /medication-requests` success, fire a
+   message to the WhatsApp bot using the channel from `core/routing.py`.
+4. **Anthropic auto-classification** — when `classification_hint == "auto"`
+   on an item, call Claude to pick `acute`/`chronic` before persisting.
 
 ## Design provenance
 
-The visual language comes directly from the Claude Design handoff bundle
-(`Leadway RxHub.html` + `styles/rxhub.css` + `src/rx/rxhub-ui.jsx` +
+Visual language is ported verbatim from the Claude Design handoff bundle
+(`Leadway RxHub.html`, `styles/rxhub.css`, `src/rx/rxhub-ui.jsx`,
 `src/rx/rxhub-login.jsx`). The provider role in the design was a placeholder
-landing (`rxhub-other-roles.jsx`); this repo completes that journey end-to-end.
+landing (`rxhub-other-roles.jsx`); this repo completes the journey end-to-end.

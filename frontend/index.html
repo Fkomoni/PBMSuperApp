@@ -11,9 +11,11 @@
   <link rel="stylesheet" href="styles/app.css" />
   <link rel="stylesheet" href="styles/rxhub.css" />
   <link rel="stylesheet" href="styles/provider.css" />
+  <!-- config.js (one line: window.__API_BASE__ = "..."). Edit for each deploy. -->
+  <script src="config.js"></script>
   <script>
-    // Backend API base. Override via window.__API_BASE__ (e.g. set in a separate config.js).
-    window.__API_BASE__ = window.__API_BASE__ || "https://leadway-rx-api.onrender.com/api/v1";
+    // Fallback if config.js didn't set anything (local dev against port 8000).
+    window.__API_BASE__ = window.__API_BASE__ || "http://localhost:8000/api/v1";
   </script>
 </head>
 <body class="rxhub">
