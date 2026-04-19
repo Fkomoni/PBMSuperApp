@@ -15,7 +15,9 @@ from app.schemas.provider import (
     TrackingEvent as TrackingEventSchema,
     TrackingOut,
 )
-from app.services import wellahealth
+from app.core.config import settings
+from app.services import prognosis, wellahealth
+from app.services.prognosis import PrognosisAuthError
 from app.services.wellahealth import WellaHealthError
 
 logger = logging.getLogger(__name__)
@@ -47,6 +49,15 @@ def _serialize(req: MedicationRequest) -> dict:
         "id": req.id,
         "enrollee_id": req.enrollee_id,
         "enrollee_name": req.enrollee_name,
+        "enrollee_phone": req.enrollee_phone,
+        "enrollee_email": req.enrollee_email,
+        "enrollee_state": req.enrollee_state,
+        "enrollee_dob": req.enrollee_dob,
+        "enrollee_gender": req.enrollee_gender,
+        "delivery": req.delivery,
+        "alt_phone": req.alt_phone,
+        "notes": req.notes,
+        "diagnoses": req.diagnoses,
         "status": req.status,
         "classification": req.classification,
         "route": req.route,
@@ -68,6 +79,21 @@ def _serialize(req: MedicationRequest) -> dict:
     }
 
 
+async def _enrich_from_prognosis(enrollee_id: str) -> dict:
+    """Best-effort Prognosis lookup for enrollee contact/address fields.
+    Returns {} if Prognosis is unconfigured or the call fails — submission
+    proceeds either way with whatever the provider typed into the form.
+    """
+    if not (settings.prognosis_username and settings.prognosis_password):
+        return {}
+    try:
+        data = await prognosis.verify_enrollee(enrollee_id)
+    except PrognosisAuthError as e:
+        logger.warning("Prognosis enrich failed for %s: %s", enrollee_id, e)
+        return {}
+    return data or {}
+
+
 @router.post("", response_model=MedicationRequestOut)
 async def submit(
     payload: MedicationRequestIn,
@@ -80,11 +106,20 @@ async def submit(
     item_dicts = [i.model_dump() for i in payload.items]
     classification = _classify_request(item_dicts)
     route_kinds = [classification, *{(i.get("classification_hint") or "") for i in item_dicts}]
-    route = classify_bucket(route_kinds, state=None)
+
+    enrollee = await _enrich_from_prognosis(payload.enrollee_id)
+    state = enrollee.get("state")
+    route = classify_bucket(route_kinds, state=state)
 
     req = MedicationRequest(
         provider_id=provider["sub"],
         enrollee_id=payload.enrollee_id,
+        enrollee_name=enrollee.get("name"),
+        enrollee_phone=enrollee.get("phone"),
+        enrollee_email=enrollee.get("email"),
+        enrollee_dob=enrollee.get("dob"),
+        enrollee_gender=enrollee.get("gender"),
+        enrollee_state=state,
         diagnoses=[d.model_dump() for d in payload.diagnoses],
         delivery=payload.delivery.model_dump() if payload.delivery else None,
         alt_phone=payload.alt_phone,
@@ -127,10 +162,13 @@ async def submit(
     if route.get("channel") == "wellahealth":
         serialized = _serialize(req)
         try:
-            wella_resp = await wellahealth.dispatch_fulfilment(serialized)
+            wella_resp = await wellahealth.create_fulfilment(serialized)
+            # Docs return a flat object (sometimes wrapped in {"value": ...}).
+            wella_obj = wella_resp.get("value") if isinstance(wella_resp, dict) and "value" in wella_resp else wella_resp
+            ref = (wella_obj or {}).get("enrollmentId") or (wella_obj or {}).get("id") or (wella_obj or {}).get("fulfilmentId")
             db.add(TrackingEvent(
                 request_id=req.id,
-                label=f"Sent to WellaHealth (ref {wella_resp.get('reference') or wella_resp.get('id') or '—'})",
+                label=f"Sent to WellaHealth (ref {ref or '—'})",
                 kind="done",
                 icon="send",
                 at=datetime.now(timezone.utc),

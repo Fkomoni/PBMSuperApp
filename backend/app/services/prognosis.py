@@ -32,11 +32,9 @@ class PrognosisProvider:
 
 
 # ------------------------------------------------------------
-# ADAPT #1 — path + request shape
+# ADAPT #1 — Leadway ProviderLogIn endpoint
 # ------------------------------------------------------------
-# If Prognosis expects e.g. /Provider/Login with a PascalCase body,
-# change PATH / _build_payload() to match.
-LOGIN_PATH = "/api/Provider/ProviderLogIn"
+LOGIN_PATH = "/api/ProviderNetwork/ProviderLogIn"
 
 
 def _build_payload(email: str, password: str) -> dict:
@@ -162,12 +160,17 @@ ENROLLEE_VERIFY_PATH = "/api/EnrolleeProfile/GetEnrolleeBioDataByEnrolleeID"
 def _enrollee_from_response(data: dict) -> dict:
     first = data.get("FirstName") or data.get("Firstname") or data.get("firstname") or ""
     last  = data.get("LastName")  or data.get("Lastname")  or data.get("lastname")  or data.get("Surname") or ""
+    full = data.get("FullName") or data.get("Name") or data.get("name") or f"{first} {last}".strip()
     return {
         "enrollee_id":  data.get("EnrolleeId")   or data.get("EnrolleeID")  or data.get("enrolleeid")   or data.get("MemberId") or data.get("enrollee_id"),
-        "name":         data.get("FullName")     or data.get("Name")        or data.get("name")         or f"{first} {last}".strip(),
+        "name":         full,
+        "first_name":   first or (full.split(" ", 1)[0] if full else ""),
+        "last_name":    last or (full.split(" ", 1)[1] if " " in full else ""),
         "scheme":       data.get("Scheme")       or data.get("SchemeName")  or data.get("PlanName")     or data.get("scheme"),
         "company":      data.get("CompanyName")  or data.get("Employer")    or data.get("Company")      or data.get("company"),
         "age":          data.get("Age")          or data.get("age"),
+        "dob":          data.get("DateOfBirth")  or data.get("DOB")         or data.get("dob"),
+        "gender":       data.get("Gender")       or data.get("gender"),
         "phone":        data.get("PhoneNumber")  or data.get("Mobile")      or data.get("Phone")        or data.get("phone"),
         "email":        data.get("Email")        or data.get("email"),
         "state":        data.get("State")        or data.get("state"),
