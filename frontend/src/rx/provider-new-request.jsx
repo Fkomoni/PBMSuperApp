@@ -291,7 +291,12 @@ function AddressFieldInline({ value, onChange, placeholder }) {
   const dq = useDebouncedQuery(q, 300);
 
   rxE(() => {
-    if (!dq || dq.length < 3 || (value && value.formatted === dq)) { setSugs([]); return; }
+    // Don't fetch suggestions when a Google result was already picked —
+    // otherwise every keystroke runs autocomplete. `place_id` being set
+    // means the user accepted a Google suggestion.
+    if (!dq || dq.length < 3 || (value && value.place_id && value.formatted === dq)) {
+      setSugs([]); return;
+    }
     let cancelled = false;
     providerApi.addressAutocomplete(dq)
       .then(r => {
@@ -300,7 +305,7 @@ function AddressFieldInline({ value, onChange, placeholder }) {
       })
       .catch(() => { if (!cancelled) setSugs([]); });
     return () => { cancelled = true; };
-  }, [dq, value?.formatted]);
+  }, [dq]);
 
   const pickSug = async (s) => {
     const pid = s.place_id || s.id;
@@ -608,12 +613,6 @@ function ProviderNewRequest({ session, initialMember, onSubmitted, onCancel }) {
         <div className="rx-field" style={{ marginBottom: 0 }}>
           <label>Delivery Address <span style={{ color: "var(--rx-red)" }}>*</span></label>
           <AddressFieldInline value={address} onChange={setAddress} />
-          {address?.formatted && (
-            <div style={{ marginTop: 6, fontSize: 12, color: "var(--rx-green)", display: "flex", alignItems: "center", gap: 4 }}>
-              <RxIcon name="check-circle-2" size={13} /> Address captured
-              {address.place_id ? " (verified via Google)" : " — typed entry"}
-            </div>
-          )}
         </div>
 
         {classifications.length > 0 && (

@@ -103,11 +103,8 @@ async def prognosis_send_test_email(
         "— Leadway RxHub"
     )
     try:
-        resp = await prognosis.send_email(
-            to=to, subject=subject, body=body,
-            category="rxhub_test", reference="test-" + str(int(__import__('time').time())),
-            transaction_type="RxHubTest",
-        )
+        # Match the known-working cURL exactly — empty optional fields.
+        resp = await prognosis.send_email(to=to, subject=subject, body=body)
         return {"ok": True, "prognosis_response": resp}
     except prognosis.PrognosisAuthError as e:
         return {"ok": False, "error": str(e), "cache": prognosis.token_cache_info()}

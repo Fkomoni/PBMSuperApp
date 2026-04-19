@@ -198,13 +198,13 @@ async def submit(
     if settings.prognosis_username and settings.prognosis_password and req.enrollee_email:
         try:
             subject, body = notifications.build_for(route.get("channel"), _serialize(req))
+            # Match the known-working Prognosis call exactly — category /
+            # reference / transaction_type come back as "validation
+            # failed" when populated with arbitrary strings. Leave empty.
             await prognosis.send_email(
                 to=req.enrollee_email,
                 subject=subject,
                 body=body,
-                category="prescription_submitted",
-                reference=req.id,
-                transaction_type="RxHubSubmit",
             )
             db.add(TrackingEvent(
                 request_id=req.id,
