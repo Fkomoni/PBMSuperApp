@@ -41,9 +41,10 @@ async def sources():
     wh_env = "staging" if "staging" in wh else ("production" if "api.wellahealth" in wh else "custom/unknown")
     return {
         "medications": {
-            "source": "bundled catalog",
+            "source": "bundled Nigerian drug catalog",
             "file": "backend/app/services/drug_catalog.py",
-            "note": "Replace with Wella tariff / Leadway drug-master when available.",
+            "count": len(__import__("app.services.drug_catalog", fromlist=["all_drugs"]).all_drugs()),
+            "note": "WellaHealth does not expose a drug list endpoint; Fulfilments accept free-form drugs. Extend drug_catalog.py when new items are needed.",
         },
         "pharmacies": {
             "source": "WellaHealth live API",
