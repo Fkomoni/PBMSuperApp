@@ -83,9 +83,27 @@ async def _request(method: str, path: str, *, params: dict | None = None, body: 
     except Exception:
         data = {"raw": resp.text}
 
+    import logging as _l
+    _l.getLogger("rxhub.wellahealth").info(
+        "Wella %s %s → HTTP %s · body=%s", method, path, resp.status_code, str(data)[:1500]
+    )
+
     if resp.status_code >= 400:
-        msg = (isinstance(data, dict) and (data.get("message") or data.get("error") or data.get("title"))) or f"WellaHealth error {resp.status_code}"
-        raise WellaHealthError(str(msg))
+        title = (isinstance(data, dict) and (data.get("message") or data.get("error") or data.get("title"))) or None
+        # ASP.NET returns field-level detail under `errors`. Join them so the
+        # real reason (e.g. "enrollmentCode: field required") surfaces instead
+        # of the generic "One or more validation errors occurred."
+        errs = isinstance(data, dict) and data.get("errors")
+        if isinstance(errs, dict) and errs:
+            parts = []
+            for field, msgs in errs.items():
+                if isinstance(msgs, list):
+                    parts.append(f"{field}: {'; '.join(str(m) for m in msgs)}")
+                else:
+                    parts.append(f"{field}: {msgs}")
+            detail = " · ".join(parts)
+            raise WellaHealthError(f"{title or 'Validation failed'} — {detail}")
+        raise WellaHealthError(str(title or f"WellaHealth error {resp.status_code}"))
     return data
 
 

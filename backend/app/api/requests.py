@@ -304,6 +304,24 @@ async def list_mine(
     return [MedicationRequestOut(**_serialize(r)) for r in rows]
 
 
+# Labels / label-prefixes that are ops-internal — PBM team cares, providers
+# don't. Surfaced to admin via /admin/requests/{id}, hidden from provider
+# tracking drawer. Keeps the provider view focused on "is my order in good
+# hands" instead of leaking retry-pending / upstream-email failures.
+_OPS_ONLY_LABEL_PREFIXES = (
+    "Awaiting retry",
+    "Member email not sent",
+    "Member email failed",
+)
+
+
+def _provider_visible(e) -> bool:
+    label = (e.label or "").strip()
+    if any(label.startswith(p) for p in _OPS_ONLY_LABEL_PREFIXES):
+        return False
+    return True
+
+
 @router.get("/{request_id}/tracking", response_model=TrackingOut)
 async def tracking(
     request_id: str,
@@ -315,6 +333,6 @@ async def tracking(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Request not found")
     events = [
         TrackingEventSchema(label=e.label, at=e.at, kind=e.kind, icon=e.icon, note=e.note)
-        for e in req.events
+        for e in req.events if _provider_visible(e)
     ]
     return TrackingOut(request_id=request_id, events=events)
