@@ -8,7 +8,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api import admin, auth, debug, lookup, medications, requests
+from app.api import admin, auth, debug, lookup, medications, pharmacies, requests
 from app.core.config import settings
 from app.core.db import init_db
 
@@ -70,6 +70,7 @@ def create_app() -> FastAPI:
     app.include_router(auth.router, prefix=settings.api_prefix)
     app.include_router(lookup.router, prefix=settings.api_prefix)
     app.include_router(medications.router, prefix=settings.api_prefix)
+    app.include_router(pharmacies.router, prefix=settings.api_prefix)
     app.include_router(requests.router, prefix=settings.api_prefix)
     app.include_router(admin.router, prefix=settings.api_prefix)
     app.include_router(debug.router, prefix=settings.api_prefix)

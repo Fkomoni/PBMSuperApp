@@ -77,6 +77,8 @@ const api = {
 
   summary: (days = 30) => request("/reports/summary", { query: { days } }),
 
+  listPharmacies: (state, lga) => request("/pharmacies", { query: { state, lga, limit: 30 } }),
+
   // Admin-only
   admin: {
     listRequests: (params = {}) => request("/admin/requests", { query: params }),

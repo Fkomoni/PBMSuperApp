@@ -102,6 +102,9 @@ class MedicationRequestIn(BaseModel):
     alt_phone: str | None = None
     urgency: Literal["routine", "urgent", "stat"] = "routine"
     treating_doctor: str | None = None
+    # Provider-chosen partner pharmacy (WellaHealth pharmacyCode). If blank,
+    # WellaHealth auto-assigns. Applies only when the request is routed there.
+    pharmacy_code: str | None = None
     notes: str | None = None
 
     @field_validator("enrollee_id", mode="before")

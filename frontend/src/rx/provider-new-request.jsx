@@ -75,6 +75,45 @@ function humanizeError(err) {
   return "We couldn't submit the request. Please try again or contact support on 07080627051.";
 }
 
+function PharmacyPicker({ state, value, onChange }) {
+  const [items, setItems] = rxS([]);
+  const [loading, setLoading] = rxS(false);
+  const [err, setErr] = rxS(null);
+
+  rxE(() => {
+    const s = (state || "").trim();
+    if (s.length < 3) { setItems([]); return; }
+    let cancelled = false;
+    setLoading(true); setErr(null);
+    providerApi.listPharmacies(s, null)
+      .then(r => { if (!cancelled) setItems(r?.items || []); })
+      .catch(e => { if (!cancelled) setErr(e.message || "Couldn't load pharmacies"); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [state]);
+
+  if (!state || state.length < 3) {
+    return <div style={{ fontSize: 12, color: "var(--rx-muted)", padding: "6px 0" }}>Enter the delivery state above to see partner pharmacies.</div>;
+  }
+  if (loading) {
+    return <div style={{ fontSize: 12, color: "var(--rx-muted)", padding: "6px 0" }}>Loading pharmacies in {state}…</div>;
+  }
+  if (err) {
+    return <RxBanner kind="warn" icon="alert-triangle">Couldn't load pharmacies: {err}</RxBanner>;
+  }
+
+  return (
+    <select className="pv-select" value={value || ""} onChange={e => onChange(e.target.value || null)}>
+      <option value="">Let WellaHealth auto-assign (recommended)</option>
+      {items.slice(0, 10).map(p => (
+        <option key={p.pharmacy_code} value={p.pharmacy_code}>
+          {p.name}{p.area ? ` — ${p.area}` : ""}{p.lga ? `, ${p.lga}` : ""}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 function StateField({ value, onChange }) {
   const [q, setQ] = rxS(value || "");
   const [open, setOpen] = rxS(false);
@@ -393,6 +432,9 @@ function ProviderNewRequest({ session, initialMember, onSubmitted, onCancel }) {
   const [urgency, setUrgency] = rxS("routine");
   const [notes, setNotes] = rxS("");
 
+  // Partner pharmacy (only used when routing ends up at WellaHealth)
+  const [pharmacyCode, setPharmacyCode] = rxS(null);
+
   const [submitting, setSubmitting] = rxS(false);
   const [submitErr, setSubmitErr] = rxS(null);
 
@@ -482,6 +524,7 @@ function ProviderNewRequest({ session, initialMember, onSubmitted, onCancel }) {
         alt_phone: altPhone || null,
         urgency: urgency || "routine",
         treating_doctor: treatingDoctor || null,
+        pharmacy_code: pharmacyCode || null,
         notes: notes || null,
       };
       const r = await providerApi.submitRequest(payload);
@@ -605,6 +648,13 @@ function ProviderNewRequest({ session, initialMember, onSubmitted, onCancel }) {
           <label>Delivery Address <span style={{ color: "var(--rx-red)" }}>*</span></label>
           <AddressFieldInline value={address} onChange={setAddress} />
         </div>
+
+        {routing.kind && routing.kind.startsWith("acute") && (
+          <div className="rx-field" style={{ marginTop: 14, marginBottom: 0 }}>
+            <label>Partner Pharmacy <span style={{ color: "var(--rx-muted)", fontWeight: 500 }}>(optional — WellaHealth auto-assigns if blank)</span></label>
+            <PharmacyPicker state={state} value={pharmacyCode} onChange={setPharmacyCode} />
+          </div>
+        )}
 
         {classifications.length > 0 && (
           <div className="pv-route-hint">
