@@ -103,7 +103,12 @@ async def _fetch_api_token() -> str:
     logger.info("ApiUsers/Login POST %s (user=%s)", url, settings.prognosis_username)
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            resp = await client.post(url, json=body, headers={"Accept": "application/json", "Content-Type": "application/json"})
+            resp = await client.post(url, json=body, headers={
+                "Accept": "*/*",
+                "Content-Type": "application/json",
+                "User-Agent": "PostmanRuntime/7.51.1",
+                "Cache-Control": "no-cache",
+            })
     except httpx.HTTPError as e:
         raise PrognosisAuthError(f"ApiUsers/Login transport failure: {e}") from e
 
@@ -148,21 +153,24 @@ def _invalidate_token():
 
 
 async def _auth_headers(force_refresh: bool = False) -> dict:
-    """Authorization headers for every downstream Prognosis call."""
+    """Authorization headers for every downstream Prognosis call.
+    Matches Postman's default header set — some Prognosis endpoints
+    branch on Accept and User-Agent (e.g. SendEmailAlert returns
+    "fail: Email sending failed" for non-Postman UAs even though the
+    payload is valid).
+    """
+    base = {
+        "Accept": "*/*",
+        "Content-Type": "application/json",
+        "User-Agent": "PostmanRuntime/7.51.1",
+        "Cache-Control": "no-cache",
+    }
     if settings.prognosis_auth_header:
         value = settings.prognosis_auth_header
         logger.info("Using PROGNOSIS_AUTH_HEADER override (%s)", value.split()[0] if " " in value else "raw")
-        return {
-            "Authorization": value,
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-        }
+        return {**base, "Authorization": value}
     bearer = await _get_bearer(force=force_refresh)
-    return {
-        "Authorization": f"Bearer {bearer}",
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-    }
+    return {**base, "Authorization": f"Bearer {bearer}"}
 
 
 async def _bearer_request(method: str, path: str, *, params: dict | None = None, body: dict | None = None) -> tuple[int, Any]:

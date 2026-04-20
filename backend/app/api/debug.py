@@ -87,6 +87,46 @@ async def prognosis_enrollee_raw(enrollee_id: str):
     }
 
 
+@router.get("/prognosis/token-claims")
+async def prognosis_token_claims():
+    """Decode the cached Prognosis Bearer (no signature verification)
+    so you can confirm whether our service account matches the one
+    your Postman session is using. Shows the JWT `sub` and any other
+    claims — redacted if longer than 40 chars.
+    """
+    import base64 as _b64
+    import json as _json
+
+    try:
+        bearer = await prognosis._get_bearer()  # noqa: SLF001
+    except prognosis.PrognosisAuthError as e:
+        return {"ok": False, "error": str(e)}
+
+    parts = bearer.split(".")
+    if len(parts) < 2:
+        return {"ok": False, "error": "Bearer is not a JWT", "bearer_prefix": bearer[:20] + "…"}
+    # JWT uses URL-safe base64; pad to multiple of 4
+    def _pad(s):
+        return s + "=" * (-len(s) % 4)
+    try:
+        header_b = _json.loads(_b64.urlsafe_b64decode(_pad(parts[0])))
+        payload  = _json.loads(_b64.urlsafe_b64decode(_pad(parts[1])))
+    except Exception as e:
+        return {"ok": False, "error": f"Failed to decode JWT: {e}", "bearer_prefix": bearer[:20] + "…"}
+
+    # Redact anything very long
+    for k, v in list(payload.items()):
+        if isinstance(v, str) and len(v) > 40:
+            payload[k] = v[:10] + "…" + v[-5:]
+
+    return {
+        "ok": True,
+        "bearer_prefix": bearer[:20] + "…",
+        "jwt_header": header_b,
+        "jwt_payload": payload,
+    }
+
+
 @router.get("/prognosis/send-test-email")
 async def prognosis_send_test_email(
     to: str = Query(..., description="Recipient email address"),
