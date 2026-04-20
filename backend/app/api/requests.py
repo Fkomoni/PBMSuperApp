@@ -180,13 +180,23 @@ async def submit(
     # Fire-and-safe-fail dispatch to WellaHealth when the routing matrix
     # points outside Leadway PBM. Failure here logs + appends a warn event
     # but must NOT fail the submission — the provider already has a receipt.
+    # Stash any fulfilment metadata (pharmacy code/name, tracking code) so
+    # the member email template can reference them without an extra lookup.
+    wella_meta: dict = {}
+
     if route.get("channel") == "wellahealth":
         serialized = _serialize(req)
         try:
             wella_resp = await wellahealth.create_fulfilment(serialized)
             # Docs return a flat object (sometimes wrapped in {"value": ...}).
             wella_obj = wella_resp.get("value") if isinstance(wella_resp, dict) and "value" in wella_resp else wella_resp
-            ref = (wella_obj or {}).get("enrollmentId") or (wella_obj or {}).get("id") or (wella_obj or {}).get("fulfilmentId")
+            wella_obj = wella_obj or {}
+            ref = wella_obj.get("enrollmentId") or wella_obj.get("id") or wella_obj.get("fulfilmentId")
+            wella_meta = {
+                "wella_pharmacy_code": wella_obj.get("pharmacyCode"),
+                "wella_pharmacy_name": wella_obj.get("pharmacyName"),
+                "wella_tracking_code": wella_obj.get("trackingCode") or f"WTR-{(req.id or '')[:10]}",
+            }
             db.add(TrackingEvent(
                 request_id=req.id,
                 label=f"Sent to WellaHealth (ref {ref or '—'})",
@@ -256,7 +266,13 @@ async def submit(
     # Safe-fail: log + warn event, never block the submission.
     if settings.prognosis_username and settings.prognosis_password and req.enrollee_email:
         try:
-            subject, body = notifications.build_for(route.get("channel"), _serialize(req))
+            # Enrich the email context with provider facility + any
+            # pharmacy metadata Wella returned in its create response.
+            provider_row = db.get(Provider, provider["sub"])
+            email_ctx = _serialize(req)
+            email_ctx["provider_facility"] = (provider_row.facility if provider_row else None) or (provider.get("name") if isinstance(provider, dict) else None)
+            email_ctx.update(wella_meta)
+            subject, body = notifications.build_for(route.get("channel"), email_ctx)
             # Match the known-working Prognosis call exactly — category /
             # reference / transaction_type come back as "validation
             # failed" when populated with arbitrary strings. Leave empty.
