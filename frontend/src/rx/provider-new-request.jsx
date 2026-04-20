@@ -350,9 +350,6 @@ function AddressFieldInline({ value, onChange, placeholder }) {
 // ─── Routing preview (mirrors backend rules) ────────────────────────
 function previewRoute({ classifications, state }) {
   const isLagos = (state || "").toLowerCase() === "lagos";
-  const now = new Date();
-  const weekday = now.getDay();
-  const isWeekday = weekday >= 1 && weekday <= 5;
 
   const hasChronic = classifications.includes("chronic");
   const hasAcute = classifications.includes("acute");
@@ -361,11 +358,7 @@ function previewRoute({ classifications, state }) {
   if (hasSpecial) return { channel: isLagos ? "Leadway PBM · WhatsApp #1" : "Leadway PBM · WhatsApp #2", kind: "special" };
   if (hasChronic && hasAcute) return { channel: "Leadway PBM · WhatsApp #1 (mixed)", kind: "mixed" };
   if (hasChronic) return { channel: "Leadway PBM · WhatsApp #2", kind: "chronic" };
-  if (hasAcute) {
-    if (isLagos && isWeekday) return { channel: "Leadway PBM · WhatsApp #1 (acute, Lagos)", kind: "acute-lagos-weekday" };
-    if (isLagos) return { channel: "WellaHealth partner pharmacy", kind: "acute-lagos-weekend" };
-    return { channel: "WellaHealth / partner pharmacy", kind: "acute-outside" };
-  }
+  if (hasAcute) return { channel: "WellaHealth partner pharmacy", kind: "acute" };
   return { channel: "—", kind: "none" };
 }
 

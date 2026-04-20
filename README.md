@@ -76,16 +76,14 @@ All endpoints except `/login` and `/providers/register` require
 
 ## Routing matrix
 
-| Classification | Location | Time | Channel |
-| --- | --- | --- | --- |
-| Acute | Lagos | Mon–Fri | Leadway PBM WhatsApp #1 |
-| Acute | Lagos | Weekend | WellaHealth |
-| Acute | Outside Lagos | any | WellaHealth / partner |
-| Chronic | Lagos | any | Leadway PBM WhatsApp #2 |
-| Chronic | Outside Lagos | any | Leadway PBM WhatsApp #2 |
-| Mixed (acute + chronic) | any | any | Leadway PBM WhatsApp #1 |
-| Hormonal · Cancer · Autoimmune · Fertility | Lagos | any | Leadway PBM WhatsApp #1 |
-| Hormonal · Cancer · Autoimmune · Fertility | Outside Lagos | any | Leadway PBM WhatsApp #2 |
+| Classification | Location | Channel |
+| --- | --- | --- |
+| Acute | any | WellaHealth |
+| Chronic | Lagos | Leadway PBM WhatsApp #2 |
+| Chronic | Outside Lagos | Leadway PBM WhatsApp #2 |
+| Mixed (acute + chronic) | any | Leadway PBM WhatsApp #1 |
+| Hormonal · Cancer · Autoimmune · Fertility | Lagos | Leadway PBM WhatsApp #1 |
+| Hormonal · Cancer · Autoimmune · Fertility | Outside Lagos | Leadway PBM WhatsApp #2 |
 
 Matrix lives in `backend/app/core/routing.py` (backend enforcement) and
 `frontend/src/rx/provider-new-request.jsx::previewRoute` (step-4 preview).
