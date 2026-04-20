@@ -217,12 +217,21 @@ async def submit(
         serialized["provider_facility"] = (provider_row.facility if provider_row else None) or (provider.get("name") if isinstance(provider, dict) else None)
         try:
             wa_resp = await whatsapp.dispatch_medication_request(serialized, channel=route.get("channel"))
+            # Provider-facing label only — stash the raw wamid in the debug
+            # logs, not on the tracking event. Members don't need to see
+            # Meta message IDs or bot JSON.
+            wamid = None
+            if isinstance(wa_resp, dict):
+                msgs = (wa_resp.get("wa_response") or {}).get("messages") or []
+                if msgs and isinstance(msgs[0], dict):
+                    wamid = msgs[0].get("id")
+            if wamid:
+                logger.info("WhatsApp delivered for %s → wamid=%s", req.id, wamid)
             db.add(TrackingEvent(
                 request_id=req.id,
                 label=f"Sent to Leadway PBM WhatsApp ({'#1' if route.get('channel') == 'leadway_pbm_whatsapp_1' else '#2'})",
                 kind="done",
                 icon="message-circle",
-                note=str(wa_resp)[:250],
                 at=datetime.now(timezone.utc),
             ))
             if req.status == "submitted":
