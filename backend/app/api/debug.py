@@ -12,7 +12,7 @@ from app.core.config import settings
 from app.core.security import current_admin
 from app.services import prognosis
 
-router = APIRouter(prefix="/_debug", tags=["debug"])
+router = APIRouter(prefix="/_debug", tags=["debug"], dependencies=[Depends(current_admin)])
 
 
 def _mask(value: str | None) -> str:

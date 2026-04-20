@@ -38,33 +38,61 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     app = FastAPI(title=settings.app_name, lifespan=lifespan)
 
-    origins = [o.strip() for o in (settings.cors_origins or "").split(",") if o.strip()]
+    # CORS — never silently fall back to "*". If the env var literally contains
+    # "*" we allow all origins but disable credentials (browsers refuse the
+    # combo anyway). Any other value is treated as a comma-separated allow-list.
+    raw_origins = (settings.cors_origins or "").strip()
+    if raw_origins == "*":
+        allow_origins, allow_credentials = ["*"], False
+    else:
+        allow_origins = [o.strip() for o in raw_origins.split(",") if o.strip()]
+        allow_credentials = bool(allow_origins)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=origins or ["*"],
-        allow_credentials=True,
+        allow_origins=allow_origins,
+        allow_credentials=allow_credentials,
         allow_methods=["*"],
         allow_headers=["*"],
     )
 
     # Log Pydantic validation errors with a body snippet so we can see
     # exactly which field tripped the 422 on /medication-requests, etc.
+    # Bodies for credential-carrying endpoints are never logged or echoed.
     vlogger = logging.getLogger("rxhub.validation")
+
+    _SENSITIVE_PATHS = (
+        "/login",
+        "/providers/register",
+        "/auth/session-exchange",
+        "/_debug/prognosis/test-login",
+    )
 
     @app.exception_handler(RequestValidationError)
     async def _log_validation_error(request: Request, exc: RequestValidationError):
-        try:
-            body_bytes = await request.body()
-            body_snippet = body_bytes.decode("utf-8")[:4000]
-        except Exception:
-            body_snippet = "(body unavailable)"
-        vlogger.warning("422 on %s %s · errors=%s · body=%s",
-                        request.method, request.url.path,
-                        json.dumps(exc.errors(), default=str)[:1500],
-                        body_snippet)
+        is_sensitive = any(p in request.url.path for p in _SENSITIVE_PATHS)
+        if is_sensitive:
+            vlogger.warning(
+                "422 on %s %s · errors=%s · body=<redacted: credential-bearing path>",
+                request.method, request.url.path,
+                json.dumps(exc.errors(), default=str)[:1500],
+            )
+        else:
+            try:
+                body_bytes = await request.body()
+                body_snippet = body_bytes.decode("utf-8", errors="replace")[:1000]
+            except Exception:
+                body_snippet = "(body unavailable)"
+            vlogger.warning(
+                "422 on %s %s · errors=%s · body=%s",
+                request.method, request.url.path,
+                json.dumps(exc.errors(), default=str)[:1500],
+                body_snippet,
+            )
+        # Never echo the raw request body back to the client — it may contain
+        # passwords / shared secrets / tokens that callers sent accidentally.
         return JSONResponse(
             status_code=422,
-            content={"detail": exc.errors(), "received": body_snippet[:500]},
+            content={"detail": exc.errors()},
         )
 
     app.include_router(auth.router, prefix=settings.api_prefix)

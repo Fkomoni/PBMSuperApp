@@ -117,6 +117,28 @@ services:
       - path: /*
         name: Cache-Control
         value: no-cache
+      # ── Security headers ──────────────────────────────────────────
+      # Referrer-Policy: stops the handoff URL (?handoff=&secret=) from
+      #   leaking to external subresource hosts (unpkg, fonts.googleapis.com).
+      # X-Content-Type-Options: blocks MIME sniffing.
+      # Strict-Transport-Security: forces HTTPS for two years including subs.
+      # Permissions-Policy: denies sensors/camera/mic/geolocation we don't use.
+      # NOTE: Content-Security-Policy is intentionally NOT set here because
+      # the portal currently loads @babel/standalone (requires 'unsafe-eval')
+      # and React/Lucide from unpkg. Add a CSP once the frontend is
+      # pre-compiled and self-hosted.
+      - path: /*
+        name: Referrer-Policy
+        value: no-referrer
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Strict-Transport-Security
+        value: "max-age=63072000; includeSubDomains"
+      - path: /*
+        name: Permissions-Policy
+        value: "geolocation=(), camera=(), microphone=(), payment=()"
     envVars: []
     routes:
       - type: rewrite

@@ -1,4 +1,14 @@
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+# Values that indicate the sample/default secret was never overridden.
+# Fail fast in production so a misconfigured deploy never signs tokens with
+# a publicly-known key.
+_DEFAULT_JWT_SECRETS = {
+    "change-me-in-prod",
+    "replace-me-with-32+chars",
+}
 
 
 class Settings(BaseSettings):
@@ -62,6 +72,32 @@ class Settings(BaseSettings):
 
     # ── CORS ───────────────────────────────────────────────────────────
     cors_origins: str = "*"
+
+    @model_validator(mode="after")
+    def _validate_production_guardrails(self) -> "Settings":
+        # Only enforce in production so local dev / CI can keep using the
+        # sample values without raising. These checks are deliberately
+        # conservative — a misconfigured deploy fails loud instead of
+        # silently minting tokens with a known secret.
+        if (self.environment or "").lower() == "production":
+            if not self.jwt_secret or self.jwt_secret in _DEFAULT_JWT_SECRETS:
+                raise ValueError(
+                    "JWT_SECRET must be set to a unique value in production "
+                    "(Render's `generateValue: true` creates a safe one)."
+                )
+            if len(self.jwt_secret) < 32:
+                raise ValueError("JWT_SECRET must be at least 32 characters in production.")
+            if not self.database_url:
+                raise ValueError(
+                    "DATABASE_URL must be set in production — the SQLite fallback "
+                    "would lose data on every restart."
+                )
+            if (self.cors_origins or "").strip() == "*":
+                raise ValueError(
+                    "CORS_ORIGINS='*' is not allowed in production. Pin to the "
+                    "portal URL (e.g. https://rxhub-provider-portal.onrender.com)."
+                )
+        return self
 
 
 settings = Settings()

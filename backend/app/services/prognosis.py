@@ -362,13 +362,10 @@ def _enrollee_from_response(data: dict) -> dict:
         "flag_reason":  pick("Member_FlagReason", "FlagReason"),
         "vip":          bool(pick("Member_IsVIP", "IsVIP") or False),
         "medications":  pick("ChronicMedications", "medications") or [],
-        # Keep a small-field copy of the raw payload so the frontend can
-        # surface anything we missed. Drop oversized strings (picture, etc).
-        "_raw": {
-            k: v for k, v in data.items()
-            if not (isinstance(v, str) and len(v) > 500)
-            and k.lower() not in ("picture", "photo")
-        },
+        # Note: we deliberately do NOT forward a raw copy of the Prognosis
+        # payload to API clients. Any new field added upstream (e.g. BVN,
+        # national ID) would otherwise leak automatically. Add it to the
+        # allow-list above once it's been reviewed.
     }
 
 

@@ -20,11 +20,21 @@ def create_access_token(subject: str, extra: dict | None = None) -> str:
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
+_security_logger = __import__("logging").getLogger("rxhub.security")
+
+
 def decode_token(token: str) -> dict:
     try:
         return jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
     except JWTError as e:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid token: {e}")
+        # Log the real reason for ops; return a generic message so we don't
+        # tell unauthenticated callers whether the token expired, was wrong,
+        # was signed with a different key, etc.
+        _security_logger.info("JWT decode failed: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+        )
 
 
 def _require_token(creds: HTTPAuthorizationCredentials | None) -> dict:
