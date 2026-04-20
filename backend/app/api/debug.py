@@ -31,6 +31,45 @@ def _file_mtime(path: str) -> str:
         return "unknown"
 
 
+@router.get("/sources")
+async def sources():
+    """One-shot provenance check: tells you exactly where each autocomplete
+    source is pulled from. Public, redacted. Use this to answer "is my data
+    real or stubbed?" without digging through code.
+    """
+    wh = settings.wellahealth_base_url or ""
+    wh_env = "staging" if "staging" in wh else ("production" if "api.wellahealth" in wh else "custom/unknown")
+    return {
+        "medications": {
+            "source": "bundled catalog",
+            "file": "backend/app/services/drug_catalog.py",
+            "note": "Replace with Wella tariff / Leadway drug-master when available.",
+        },
+        "pharmacies": {
+            "source": "WellaHealth live API",
+            "base_url": wh,
+            "environment": wh_env,
+            "path_state": "/public/v1/Pharmacy/{state}",
+            "path_lga":   "/public/v1/Pharmacy/{state}/{lga}",
+            "note": "Only pharmacies registered on the configured WellaHealth environment are returned. Switch WELLAHEALTH_BASE_URL to flip staging ↔ production.",
+        },
+        "enrollee_lookup": {
+            "source": "Prognosis live API",
+            "base_url": settings.prognosis_base_url,
+            "path": prognosis.ENROLLEE_VERIFY_PATH,
+        },
+        "diagnoses": {
+            "source": "bundled ICD-10 catalog",
+            "file": "backend/app/services/icd10.py",
+            "note": "Local; not fetched over the wire.",
+        },
+        "address_autocomplete": {
+            "source": "Google Maps Places (when GOOGLE_MAPS_API_KEY set; stub fallback otherwise)",
+            "key_set": bool(settings.google_maps_api_key),
+        },
+    }
+
+
 @router.get("/prognosis")
 async def prognosis_config():
     """Live Prognosis config, file mtimes, and service-Bearer cache state.
