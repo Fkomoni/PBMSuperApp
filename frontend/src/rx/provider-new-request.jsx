@@ -124,7 +124,9 @@ function PharmacyPickerModal({ state, memberLga, onSelect, onClose }) {
   const [loading, setLoading] = rxS(false);
   const [err, setErr] = rxS(null);
   const [q, setQ] = rxS("");
-  const [lgaFilter, setLgaFilter] = rxS("");
+  // Default to the member's LGA so the first view is already filtered.
+  // Provider can widen to "All LGAs" via the dropdown to see the full list.
+  const [lgaFilter, setLgaFilter] = rxS(memberLga || "");
 
   rxE(() => {
     const s = (state || "").trim();
@@ -144,12 +146,20 @@ function PharmacyPickerModal({ state, memberLga, onSelect, onClose }) {
     return Array.from(s).sort();
   }, [items]);
 
+  const normLga = (s) => (s || "").toLowerCase()
+    .replace(/\s*\bl\.?g\.?a\.?\b\s*/g, "").trim();
+
   const filtered = rxM(() => {
     const ql = q.trim().toLowerCase();
-    const lgaL = (lgaFilter || "").trim().toLowerCase();
-    const memberLgaL = (memberLga || "").trim().toLowerCase();
+    const lgaL = normLga(lgaFilter);
+    const memberLgaL = normLga(memberLga);
     const scored = items
-      .filter(p => !lgaL || (p.lga || "").toLowerCase() === lgaL)
+      // tolerant LGA match: case + "LGA" suffix + contains both ways
+      .filter(p => {
+        if (!lgaL) return true;
+        const p_l = normLga(p.lga);
+        return p_l === lgaL || p_l.includes(lgaL) || lgaL.includes(p_l);
+      })
       .filter(p => !ql || (
         (p.name || "").toLowerCase().includes(ql) ||
         (p.area || "").toLowerCase().includes(ql) ||
@@ -157,15 +167,28 @@ function PharmacyPickerModal({ state, memberLga, onSelect, onClose }) {
         (p.lga || "").toLowerCase().includes(ql)
       ))
       .map(p => {
-        // LGA-match sorts first (closest-to-member proxy without geocoding)
+        const p_l = normLga(p.lga);
         let rank = 2;
-        if (memberLgaL && (p.lga || "").toLowerCase() === memberLgaL) rank = 0;
-        else if (lgaL && (p.lga || "").toLowerCase() === lgaL) rank = 1;
+        if (memberLgaL && (p_l === memberLgaL || p_l.includes(memberLgaL) || memberLgaL.includes(p_l))) rank = 0;
+        else if (lgaL && p_l === lgaL) rank = 1;
         return { p, rank };
       })
       .sort((a, b) => a.rank - b.rank);
     return scored.map(x => x.p);
   }, [items, q, lgaFilter, memberLga]);
+
+  // If the default member-LGA filter matched zero pharmacies, auto-widen
+  // to "All LGAs" after the list loads — better than a blank panel.
+  rxE(() => {
+    if (!loading && items.length > 0 && memberLga && lgaFilter === memberLga) {
+      const ml = normLga(memberLga);
+      const anyHit = items.some(p => {
+        const pl = normLga(p.lga);
+        return pl === ml || pl.includes(ml) || ml.includes(pl);
+      });
+      if (!anyHit) setLgaFilter("");
+    }
+  }, [loading, items]);
 
   return (
     <div className="pv-drawer" role="dialog" aria-modal="true">
@@ -785,12 +808,28 @@ function ProviderNewRequest({ session, initialMember, onSubmitted, onCancel }) {
         <div className="rx-field" style={{ marginBottom: 0 }}>
           <label>Delivery Address <span style={{ color: "var(--rx-red)" }}>*</span></label>
           <AddressFieldInline value={address} onChange={setAddress} />
+          {(address?.state || address?.lga) && (
+            <div style={{
+              marginTop: 8, display: "inline-flex", alignItems: "center", gap: 8,
+              padding: "5px 10px", borderRadius: 999,
+              background: "var(--rx-green-bg)", color: "#0d7a35",
+              fontSize: 12, fontWeight: 600, border: "1px solid #c6ebd3",
+            }}>
+              <RxIcon name="map-pin" size={12} />
+              {[address.state, address.lga].filter(Boolean).join(" · ")}
+              {address.state && address.lga && (
+                <span style={{ fontWeight: 500, opacity: .75, marginLeft: 4 }}>
+                  detected from address
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         {routing.kind && routing.kind.startsWith("acute") && (
           <div className="rx-field" style={{ marginTop: 14, marginBottom: 0 }}>
             <label>Partner Pharmacy <span style={{ color: "var(--rx-muted)", fontWeight: 500 }}>(optional — WellaHealth auto-assigns if blank)</span></label>
-            <PharmacyPickerButton state={state} lga={address?.lga} selected={pharmacy} onChange={setPharmacy} />
+            <PharmacyPickerButton state={state || address?.state} lga={address?.lga} selected={pharmacy} onChange={setPharmacy} />
           </div>
         )}
 
