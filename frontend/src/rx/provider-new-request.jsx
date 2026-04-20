@@ -75,14 +75,60 @@ function humanizeError(err) {
   return "We couldn't submit the request. Please try again or contact support on 07080627051.";
 }
 
-function PharmacyPicker({ state, value, onChange }) {
+function PharmacyPickerButton({ state, lga, selected, onChange }) {
+  const [open, setOpen] = rxS(false);
+  return (
+    <>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        {selected ? (
+          <div className="ac__selected" style={{ marginTop: 0, flex: 1, minWidth: 220 }}>
+            <RxIcon name="map-pin" size={16} />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 700 }}>{selected.name}</div>
+              {selected.area || selected.lga ? (
+                <div style={{ fontSize: 11.5, fontWeight: 500, opacity: .75 }}>
+                  {[selected.area, selected.lga].filter(Boolean).join(", ")}
+                </div>
+              ) : null}
+            </div>
+            <button type="button" className="rx-btn rx-btn--ghost rx-btn--sm" style={{ width: "auto" }} onClick={() => setOpen(true)}>Change</button>
+            <button type="button" onClick={() => onChange(null)} style={{ background: 0, border: 0, color: "inherit", cursor: "pointer", padding: 4 }} aria-label="Clear"><RxIcon name="x" size={14} /></button>
+          </div>
+        ) : (
+          <button type="button" className="rx-btn rx-btn--ghost rx-btn--sm" style={{ width: "auto" }}
+            onClick={() => setOpen(true)}
+            disabled={!state || state.length < 3}>
+            <RxIcon name="map-pin" size={14} /> Select pharmacy
+          </button>
+        )}
+        {!selected && (
+          <span style={{ fontSize: 12, color: "var(--rx-muted)" }}>
+            {!state || state.length < 3
+              ? "Enter the delivery state above first"
+              : "Leave blank to let WellaHealth auto-assign"}
+          </span>
+        )}
+      </div>
+      {open && (
+        <PharmacyPickerModal
+          state={state} memberLga={lga}
+          onSelect={(p) => { onChange(p); setOpen(false); }}
+          onClose={() => setOpen(false)} />
+      )}
+    </>
+  );
+}
+
+function PharmacyPickerModal({ state, memberLga, onSelect, onClose }) {
   const [items, setItems] = rxS([]);
   const [loading, setLoading] = rxS(false);
   const [err, setErr] = rxS(null);
+  const [q, setQ] = rxS("");
+  const [lgaFilter, setLgaFilter] = rxS("");
 
   rxE(() => {
     const s = (state || "").trim();
-    if (s.length < 3) { setItems([]); return; }
+    if (!s) return;
     let cancelled = false;
     setLoading(true); setErr(null);
     providerApi.listPharmacies(s, null)
@@ -92,25 +138,103 @@ function PharmacyPicker({ state, value, onChange }) {
     return () => { cancelled = true; };
   }, [state]);
 
-  if (!state || state.length < 3) {
-    return <div style={{ fontSize: 12, color: "var(--rx-muted)", padding: "6px 0" }}>Enter the delivery state above to see partner pharmacies.</div>;
-  }
-  if (loading) {
-    return <div style={{ fontSize: 12, color: "var(--rx-muted)", padding: "6px 0" }}>Loading pharmacies in {state}…</div>;
-  }
-  if (err) {
-    return <RxBanner kind="warn" icon="alert-triangle">Couldn't load pharmacies: {err}</RxBanner>;
-  }
+  const lgas = rxM(() => {
+    const s = new Set();
+    for (const p of items) if (p.lga) s.add(p.lga);
+    return Array.from(s).sort();
+  }, [items]);
+
+  const filtered = rxM(() => {
+    const ql = q.trim().toLowerCase();
+    const lgaL = (lgaFilter || "").trim().toLowerCase();
+    const memberLgaL = (memberLga || "").trim().toLowerCase();
+    const scored = items
+      .filter(p => !lgaL || (p.lga || "").toLowerCase() === lgaL)
+      .filter(p => !ql || (
+        (p.name || "").toLowerCase().includes(ql) ||
+        (p.area || "").toLowerCase().includes(ql) ||
+        (p.address || "").toLowerCase().includes(ql) ||
+        (p.lga || "").toLowerCase().includes(ql)
+      ))
+      .map(p => {
+        // LGA-match sorts first (closest-to-member proxy without geocoding)
+        let rank = 2;
+        if (memberLgaL && (p.lga || "").toLowerCase() === memberLgaL) rank = 0;
+        else if (lgaL && (p.lga || "").toLowerCase() === lgaL) rank = 1;
+        return { p, rank };
+      })
+      .sort((a, b) => a.rank - b.rank);
+    return scored.map(x => x.p);
+  }, [items, q, lgaFilter, memberLga]);
 
   return (
-    <select className="pv-select" value={value || ""} onChange={e => onChange(e.target.value || null)}>
-      <option value="">Let WellaHealth auto-assign (recommended)</option>
-      {items.slice(0, 10).map(p => (
-        <option key={p.pharmacy_code} value={p.pharmacy_code}>
-          {p.name}{p.area ? ` — ${p.area}` : ""}{p.lga ? `, ${p.lga}` : ""}
-        </option>
-      ))}
-    </select>
+    <div className="pv-drawer" role="dialog" aria-modal="true">
+      <div className="pv-drawer__scrim" onClick={onClose} />
+      <div className="pv-drawer__panel" style={{ width: "min(520px, 96vw)" }}>
+        <div className="pv-drawer__head">
+          <div>
+            <div style={{ fontFamily: "Manrope", fontSize: 18, fontWeight: 800 }}>Select a pharmacy</div>
+            <div style={{ fontSize: 12, color: "var(--rx-muted)" }}>
+              {loading ? "Loading…" : `${items.length} in ${state}${memberLga ? ` · member LGA ${memberLga}` : ""}`}
+            </div>
+          </div>
+          <button className="rx-btn rx-btn--ghost rx-btn--sm" onClick={onClose} style={{ width: 34, padding: 0, height: 34 }}>
+            <RxIcon name="x" size={16} />
+          </button>
+        </div>
+
+        <div style={{ padding: "14px 20px 10px", borderBottom: "1px solid var(--rx-line)" }}>
+          <input className="rx-input" placeholder="Search by pharmacy name, area, or street"
+            value={q} onChange={e => setQ(e.target.value)} />
+          {lgas.length > 1 && (
+            <div style={{ marginTop: 10 }}>
+              <select className="pv-select" value={lgaFilter} onChange={e => setLgaFilter(e.target.value)}>
+                <option value="">All LGAs ({lgas.length})</option>
+                {lgas.map(l => <option key={l} value={l}>{l}</option>)}
+              </select>
+            </div>
+          )}
+        </div>
+
+        <div className="pv-drawer__body" style={{ padding: "14px 20px 24px" }}>
+          {err && <RxBanner kind="warn" icon="alert-triangle">{err}</RxBanner>}
+          {!err && !loading && filtered.length === 0 && (
+            <div style={{ fontSize: 13, color: "var(--rx-muted)", padding: "24px 0", textAlign: "center" }}>
+              No pharmacies match.
+            </div>
+          )}
+          {filtered.map((p, i) => {
+            const isMemberLga = memberLga && (p.lga || "").toLowerCase() === memberLga.toLowerCase();
+            return (
+              <button key={p.pharmacy_code} type="button"
+                onClick={() => onSelect(p)}
+                style={{
+                  display: "block", width: "100%", textAlign: "left",
+                  background: isMemberLga ? "var(--rx-green-bg)" : "var(--rx-card)",
+                  border: `1px solid ${isMemberLga ? "#c6ebd3" : "var(--rx-line)"}`,
+                  borderRadius: 10, padding: "12px 14px", marginBottom: 10,
+                  cursor: "pointer", fontFamily: "inherit",
+                }}>
+                {isMemberLga && (
+                  <div style={{ fontSize: 10, fontWeight: 800, color: "#0d7a35", letterSpacing: ".08em", textTransform: "uppercase", marginBottom: 4 }}>
+                    Closest to member LGA
+                  </div>
+                )}
+                <div style={{ fontWeight: 700, fontSize: 14 }}>{p.name}</div>
+                {(p.area || p.lga) && (
+                  <div style={{ fontSize: 12, color: "var(--rx-muted)", marginTop: 2 }}>
+                    {[p.area, p.lga].filter(Boolean).join(", ")}
+                  </div>
+                )}
+                {p.address && (
+                  <div style={{ fontSize: 12, color: "var(--rx-ink-2)", marginTop: 4 }}>{p.address}</div>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -353,7 +477,14 @@ function AddressFieldInline({ value, onChange, placeholder }) {
       try {
         const d = await providerApi.addressDetails(pid);
         const formatted = d?.formatted_address || s.description || s.label;
-        onChange({ formatted, lat: d?.lat ?? d?.location?.lat, lng: d?.lng ?? d?.location?.lng, place_id: pid });
+        onChange({
+          formatted,
+          lat: d?.lat ?? d?.location?.lat,
+          lng: d?.lng ?? d?.location?.lng,
+          place_id: pid,
+          state: d?.state,
+          lga:   d?.lga,
+        });
         setQ(formatted || "");
       } catch {
         onChange({ formatted: s.description || s.label, place_id: pid });
@@ -428,12 +559,19 @@ function ProviderNewRequest({ session, initialMember, onSubmitted, onCancel }) {
   const [state, setState] = rxS(initialMember?.state || "");
   const [address, setAddress] = rxS(null);
 
+  // When Google Places returns a state on the picked address, auto-fill
+  // the State field so the pharmacy picker can load without a second step.
+  rxE(() => {
+    if (address?.state && !state) setState(address.state);
+  }, [address?.state]);
+
   // Section 5 — Additional
   const [urgency, setUrgency] = rxS("routine");
   const [notes, setNotes] = rxS("");
 
-  // Partner pharmacy (only used when routing ends up at WellaHealth)
-  const [pharmacyCode, setPharmacyCode] = rxS(null);
+  // Partner pharmacy — object shown in the UI, code sent to backend
+  const [pharmacy, setPharmacy] = rxS(null);
+  const pharmacyCode = pharmacy?.pharmacy_code || null;
 
   const [submitting, setSubmitting] = rxS(false);
   const [submitErr, setSubmitErr] = rxS(null);
@@ -652,7 +790,7 @@ function ProviderNewRequest({ session, initialMember, onSubmitted, onCancel }) {
         {routing.kind && routing.kind.startsWith("acute") && (
           <div className="rx-field" style={{ marginTop: 14, marginBottom: 0 }}>
             <label>Partner Pharmacy <span style={{ color: "var(--rx-muted)", fontWeight: 500 }}>(optional — WellaHealth auto-assigns if blank)</span></label>
-            <PharmacyPicker state={state} value={pharmacyCode} onChange={setPharmacyCode} />
+            <PharmacyPickerButton state={state} lga={address?.lga} selected={pharmacy} onChange={setPharmacy} />
           </div>
         )}
 

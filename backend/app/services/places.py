@@ -42,13 +42,25 @@ async def details(place_id: str) -> dict:
         r.raise_for_status()
         data = r.json().get("result") or {}
     loc = (data.get("geometry") or {}).get("location") or {}
+    components = data.get("address_components") or []
     return {
         "place_id": place_id,
         "formatted_address": data.get("formatted_address"),
         "lat": loc.get("lat"),
         "lng": loc.get("lng"),
-        "components": data.get("address_components"),
+        "components": components,
+        # Convenience extracts — Nigeria maps state to
+        # administrative_area_level_1 and LGA to _level_2.
+        "state": _extract(components, "administrative_area_level_1"),
+        "lga":   _extract(components, "administrative_area_level_2"),
     }
+
+
+def _extract(components: list[dict], wanted_type: str) -> str | None:
+    for c in components or []:
+        if wanted_type in (c.get("types") or []):
+            return c.get("long_name") or c.get("short_name")
+    return None
 
 
 def _stub_autocomplete(query: str) -> list[dict]:
@@ -68,4 +80,6 @@ def _stub_details(place_id: str) -> dict:
         "lat": 6.4550575,
         "lng": 3.3841664,
         "components": None,
+        "state": "Lagos",
+        "lga": "Lagos Island",
     }
