@@ -300,12 +300,12 @@ dispatch_fulfilment = create_fulfilment
 # ==================================================================
 # Pharmacy lookups
 # ==================================================================
-async def pharmacies_in_state(state: str, page_index: int = -1, page_size: int = -1) -> Any:
+async def pharmacies_in_state(state: str, page_index: int = 1, page_size: int = 200) -> Any:
     return await _request("GET", PHARMACY_STATE_PATH.format(stateName=state),
                           params={"pageIndex": page_index, "pageSize": page_size})
 
 
-async def pharmacies_in_lga(state: str, lga: str, page_index: int = -1, page_size: int = -1) -> Any:
+async def pharmacies_in_lga(state: str, lga: str, page_index: int = 1, page_size: int = 200) -> Any:
     return await _request("GET", PHARMACY_LGA_PATH.format(stateName=state, lgaName=lga),
                           params={"pageIndex": page_index, "pageSize": page_size})
 

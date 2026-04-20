@@ -263,6 +263,79 @@ async def prognosis_send_test_email_verbose(
     }
 
 
+@router.get("/wellahealth/pharmacies")
+async def wellahealth_pharmacies(
+    state: str = Query(..., description="State name, e.g. Lagos"),
+    lga: str | None = Query(default=None, description="Optional LGA, e.g. Surulere"),
+    page_size: int = Query(default=50, ge=1, le=500),
+):
+    """Raw Wella pharmacy list dump. Use to verify the live API actually
+    returns pharmacies and to see the exact field names Wella uses so
+    our normaliser matches.
+    """
+    import base64
+    import httpx
+
+    cid = (settings.wellahealth_client_id or "").strip()
+    cs  = (settings.wellahealth_client_secret or "").strip()
+    pc  = (settings.wellahealth_partner_code or "").strip()
+    if not (cid and cs):
+        return {"ok": False, "error": "WELLAHEALTH_CLIENT_ID/_SECRET not set"}
+
+    path = f"/public/v1/Pharmacy/{state}" + (f"/{lga}" if lga else "")
+    url = settings.wellahealth_base_url.rstrip("/") + path
+    raw = f"{cid}:{cs}".encode()
+    headers = {
+        "Authorization": "Basic " + base64.b64encode(raw).decode(),
+        "Accept": "application/json, text/plain, text/json",
+        "Content-Type": "application/json",
+    }
+    if pc:
+        headers["Partner-Code"] = pc
+        headers["X-Partner-Code"] = pc
+
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
+            resp = await client.get(url, params={"pageIndex": 1, "pageSize": page_size}, headers=headers)
+        body_text = resp.text
+        try:
+            body = resp.json()
+        except Exception:
+            body = None
+    except httpx.HTTPError as e:
+        return {"ok": False, "error": str(e), "url": url}
+
+    # Unwrap common envelope shapes
+    data_candidates: list = []
+    if isinstance(body, dict):
+        for k in ("data", "Data", "result", "Result", "items", "Items"):
+            if isinstance(body.get(k), list):
+                data_candidates = body[k]
+                wrapper_key = k
+                break
+        else:
+            wrapper_key = None
+    elif isinstance(body, list):
+        data_candidates = body
+        wrapper_key = "(top-level list)"
+    else:
+        wrapper_key = None
+
+    sample_keys = list(data_candidates[0].keys()) if data_candidates else None
+
+    return {
+        "request_url": url,
+        "response_status": resp.status_code,
+        "response_headers": dict(resp.headers),
+        "response_body_text_first_400": body_text[:400],
+        "parsed_top_level_keys": list(body.keys()) if isinstance(body, dict) else type(body).__name__,
+        "wrapper_key_for_data": wrapper_key,
+        "pharmacy_count": len(data_candidates),
+        "first_pharmacy_sample": data_candidates[0] if data_candidates else None,
+        "sample_row_keys": sample_keys,
+    }
+
+
 @router.get("/whatsapp/config")
 async def whatsapp_config():
     """Show the WhatsApp bot URL/path this instance will POST to, plus

@@ -37,15 +37,38 @@ def _normalize(p: dict) -> dict:
     }
 
 
+def _unwrap_list(payload: Any) -> list[dict]:
+    """Walk common envelope shapes to find the first list[dict]."""
+    if isinstance(payload, list):
+        return payload
+    if isinstance(payload, dict):
+        # Direct keys first
+        for k in ("data", "Data", "result", "Result", "items", "Items"):
+            v = payload.get(k)
+            if isinstance(v, list):
+                return v
+        # Stoplight wraps: {"responses": {"200": {"data": [...]}}}
+        for outer in ("responses", "Responses"):
+            if isinstance(payload.get(outer), dict):
+                for code, inner in payload[outer].items():
+                    got = _unwrap_list(inner)
+                    if got:
+                        return got
+        # Single-value wrapper {"value": {...}}
+        if isinstance(payload.get("value"), (list, dict)):
+            got = _unwrap_list(payload["value"])
+            if got:
+                return got
+    return []
+
+
 async def _fetch_in_state(state: str, lga: str | None) -> list[dict]:
     """Ask Wella. Normalize the shape. Trim to pharmacies with a usable code."""
     if lga:
-        raw = await wellahealth.pharmacies_in_lga(state, lga, page_size=50)
+        raw = await wellahealth.pharmacies_in_lga(state, lga, page_size=200)
     else:
-        raw = await wellahealth.pharmacies_in_state(state, page_size=50)
-    items = raw.get("data") if isinstance(raw, dict) else raw
-    if not isinstance(items, list):
-        return []
+        raw = await wellahealth.pharmacies_in_state(state, page_size=200)
+    items = _unwrap_list(raw)
     return [p for p in (_normalize(x) for x in items) if p.get("pharmacy_code") and p.get("name")]
 
 
@@ -80,9 +103,21 @@ async def list_lgas(state: str = Query(...)):
         raw = await wellahealth.lgas_in_state(state.strip())
     except WellaHealthError as e:
         return {"ok": False, "error": str(e), "lgas": []}
-    lgas: list[str] = raw.get("lgas") if isinstance(raw, dict) else []
-    if not isinstance(lgas, list):
-        lgas = []
-    lgas = sorted({str(x) for x in lgas if x})
+    # Wella returns {stateOfPremise, lgas: [...]} but may wrap it; try several
+    lgas_candidate = None
+    if isinstance(raw, dict):
+        lgas_candidate = raw.get("lgas") or raw.get("Lgas") or raw.get("LGAs")
+        if lgas_candidate is None:
+            # One level deeper — e.g. {"data": {"lgas": [...]}}
+            for k in ("data", "Data", "result", "Result"):
+                inner = raw.get(k)
+                if isinstance(inner, dict):
+                    lgas_candidate = inner.get("lgas") or inner.get("Lgas") or inner.get("LGAs")
+                    if lgas_candidate:
+                        break
+                elif isinstance(inner, list):
+                    lgas_candidate = inner
+                    break
+    lgas = sorted({str(x) for x in (lgas_candidate or []) if x})
     _LGA_CACHE[key] = (now, lgas)
     return {"ok": True, "state": state, "lgas": lgas}
