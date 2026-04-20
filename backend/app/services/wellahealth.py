@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import re
+from datetime import datetime
 from typing import Any
 
 import httpx
@@ -29,6 +30,38 @@ def _ng_e164(phone: str | None) -> str:
     if len(digits) == 10 and digits[0] in "789":
         return "234" + digits
     return digits
+
+
+# WellaHealth expects dates in ISO date-only form (YYYY-MM-DD) for its
+# `System.DateOnly` fields. Prognosis returns ISO date-time, other sources
+# sometimes return US `M/D/YYYY h:mm:ss tt`. Accept common formats and
+# coerce to YYYY-MM-DD.
+_DATE_FORMATS = (
+    "%Y-%m-%dT%H:%M:%S",
+    "%Y-%m-%dT%H:%M:%S.%f",
+    "%Y-%m-%d",
+    "%d/%m/%Y",
+    "%d/%m/%Y %H:%M:%S",
+    "%m/%d/%Y",
+    "%m/%d/%Y %I:%M:%S %p",
+    "%m/%d/%Y %H:%M:%S",
+)
+
+
+def _iso_date(value: str | None) -> str | None:
+    if not value:
+        return None
+    s = value.strip()
+    # Already a plain ISO date
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", s):
+        return s
+    for fmt in _DATE_FORMATS:
+        try:
+            return datetime.strptime(s, fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            continue
+    # Last resort: strip anything after "T" or a space to catch oddly-padded ISO
+    return s.split("T", 1)[0].split(" ", 1)[0]
 
 _TIMEOUT = httpx.Timeout(10.0, connect=4.0)
 
@@ -231,7 +264,9 @@ def build_fulfilment_payload(request: dict) -> dict:
     if request.get("enrollee_email"):
         payload["enrolleeEmail"] = request["enrollee_email"]
     if request.get("enrollee_dob"):
-        payload["enrolleeDateOfBirth"] = request["enrollee_dob"]
+        dob_iso = _iso_date(request["enrollee_dob"])
+        if dob_iso:
+            payload["enrolleeDateOfBirth"] = dob_iso
     if diag_text:
         payload["diagnosis"] = diag_text[:250]
     if request.get("notes"):
