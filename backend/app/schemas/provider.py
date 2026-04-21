@@ -32,6 +32,20 @@ class ProviderRegisterIn(BaseModel):
     facility: str | None = Field(default=None, max_length=255)
     phone: str | None = Field(default=None, max_length=32)
 
+    @field_validator("password")
+    @classmethod
+    def _password_complexity(cls, v: str) -> str:
+        errors = []
+        if not any(c.isupper() for c in v):
+            errors.append("at least one uppercase letter")
+        if not any(c.isdigit() for c in v):
+            errors.append("at least one digit")
+        if not any(c in "!@#$%^&*()-_=+[]{}|;:,.<>?/`~" for c in v):
+            errors.append("at least one special character (!@#$%^&* etc.)")
+        if errors:
+            raise ValueError("Password must contain " + ", ".join(errors))
+        return v
+
 
 class EnrolleeOut(BaseModel):
     enrollee_id: str

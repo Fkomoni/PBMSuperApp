@@ -83,7 +83,7 @@ async def list_all_requests(
     status_: str | None = Query(default=None, alias="status"),
     state: str | None = Query(default=None, description="Enrollee state, e.g. Lagos"),
     provider_id: str | None = Query(default=None),
-    q: str | None = Query(default=None, description="Free-text match on request id / enrollee id / name"),
+    q: str | None = Query(default=None, max_length=200, description="Free-text match on request id / enrollee id / name"),
     _: dict = Depends(current_admin),
     db: Session = Depends(get_db),
 ):
@@ -105,6 +105,7 @@ async def list_all_requests(
             | (MedicationRequest.enrollee_id.ilike(like))
             | (MedicationRequest.enrollee_name.ilike(like))
         )
+    audit.info("event=admin_list_requests actor=%s q=%s channel=%s status=%s", _.get("sub", "?"), q, channel, status_)
     total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
     stmt = stmt.order_by(MedicationRequest.created_at.desc()).offset(offset).limit(limit)
     rows = db.scalars(stmt).all()
@@ -132,6 +133,7 @@ async def request_detail(
     req = db.get(MedicationRequest, request_id)
     if not req:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Request not found")
+    audit.info("event=admin_view_request actor=%s target=%s", _.get("sub", "?"), request_id)
     provider = db.get(Provider, req.provider_id) if req.provider_id else None
     data = _serialize_request(req, provider)
     data["events"] = [
@@ -257,6 +259,7 @@ async def list_providers(
     _: dict = Depends(current_admin),
     db: Session = Depends(get_db),
 ):
+    audit.info("event=admin_list_providers actor=%s", _.get("sub", "?"))
     rows = db.scalars(select(Provider).order_by(Provider.created_at.desc())).all()
     return [
         {

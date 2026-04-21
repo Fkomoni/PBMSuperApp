@@ -6,9 +6,7 @@ token previews, or PHI-fetching utilities on a production instance.
 """
 from __future__ import annotations
 
-import os
 from datetime import datetime, timezone
-from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, Depends, Query
@@ -31,14 +29,6 @@ def _mask(value: str | None) -> str:
     if len(value) <= 4:
         return "****"
     return value[:2] + "***" + value[-2:]
-
-
-def _file_mtime(path: str) -> str:
-    try:
-        mt = os.path.getmtime(path)
-        return datetime.fromtimestamp(mt, tz=timezone.utc).isoformat()
-    except OSError:
-        return "unknown"
 
 
 @router.get("/sources")
@@ -89,7 +79,6 @@ async def prognosis_config():
     # Don't try to fetch a fresh token here (network hop). Just show cache.
     token_info = prognosis.token_cache_info()
 
-    backend_root = Path(__file__).resolve().parents[2]
     return {
         "prognosis_base_url": settings.prognosis_base_url,
         "prognosis_username": _mask(settings.prognosis_username),
@@ -102,12 +91,7 @@ async def prognosis_config():
             "send_email":      prognosis.EMAIL_ALERT_PATH,
         },
         "service_bearer_cache": token_info,
-        "build_markers": {
-            "prognosis_service_mtime": _file_mtime(str(backend_root / "app" / "services" / "prognosis.py")),
-            "auth_api_mtime":          _file_mtime(str(backend_root / "app" / "api" / "auth.py")),
-            "debug_api_mtime":         _file_mtime(__file__),
-            "server_time_utc":         datetime.now(timezone.utc).isoformat(),
-        },
+        "server_time_utc": datetime.now(timezone.utc).isoformat(),
     }
 
 

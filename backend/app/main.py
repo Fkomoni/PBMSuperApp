@@ -27,6 +27,10 @@ class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        # Prevent browsers from treating JSON responses as executable content.
+        response.headers["Content-Security-Policy"] = "default-src 'none'"
+        # Disable sensitive browser features — this is a backend API, not a page.
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
         return response
 
 
@@ -77,8 +81,8 @@ def create_app() -> FastAPI:
         # allow_credentials MUST be False when allow_origins is "*" — the CORS
         # spec forbids the combination and browsers will refuse the response.
         allow_credentials=not use_wildcard,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "Accept"],
     )
 
     # Log Pydantic validation errors with a body snippet so we can see

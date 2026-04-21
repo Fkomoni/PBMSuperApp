@@ -71,7 +71,8 @@ def _upsert_from_prognosis(db: Session, pp: PrognosisProvider) -> Provider:
             p.facility = pp.facility
         if pp.phone:
             p.phone = pp.phone
-        p.is_active = True
+        # Do NOT force is_active=True on existing accounts — an admin may have
+        # intentionally deactivated this provider. Only activate on creation.
     db.commit()
     db.refresh(p)
     return p

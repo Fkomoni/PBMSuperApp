@@ -30,7 +30,7 @@ async def enrollee(request: Request, enrollee_id: str = Query(..., alias="enroll
             logger.warning("Prognosis verify failed: %s", e)
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Prognosis verify failed: {e}")
         if data is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Enrollee '{enrollee_id}' not found on Prognosis")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Enrollee not found")
         return data
 
     # Dev fallback (no Prognosis credentials set).
@@ -64,7 +64,7 @@ async def diagnoses(q: str = Query(default="", min_length=0), limit: int = Query
 
 
 @router.get("/address-autocomplete")
-async def address_autocomplete(input: str = Query(...)):
+async def address_autocomplete(input: str = Query(..., max_length=200)):
     """Google Places autocomplete (Nigeria-scoped). Falls back to inline stubs
     when GOOGLE_MAPS_API_KEY is unset so the wizard works in dev.
     """
@@ -72,6 +72,6 @@ async def address_autocomplete(input: str = Query(...)):
 
 
 @router.get("/address-details")
-async def address_details(place_id: str = Query(...)):
+async def address_details(place_id: str = Query(..., max_length=500)):
     """Google Place details + geometry. Same fallback behavior as autocomplete."""
     return await places.details(place_id)

@@ -228,7 +228,7 @@ async def _bearer_request(method: str, path: str, *, params: dict | None = None,
                          for k, v in data.items()}
         else:
             loggable = data
-        logger.info("Prognosis %s %s → HTTP %s · body=%s", method, path, resp.status_code, str(loggable)[:3000])
+        logger.debug("Prognosis %s %s → HTTP %s · body=%s", method, path, resp.status_code, str(loggable)[:3000])
         return resp.status_code, data
 
     raise PrognosisAuthError("Prognosis returned 401 twice in a row — check PROGNOSIS_USERNAME/PASSWORD")

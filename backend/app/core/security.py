@@ -12,9 +12,13 @@ from app.core.config import settings
 bearer = HTTPBearer(auto_error=False)
 
 # ── Token revocation blocklist ────────────────────────────────────────────────
-# In-memory set keyed by (jti, exp). Suitable for single-instance deploys on
+# In-memory dict keyed by jti → expiry. Suitable for single-instance deploys on
 # Render free tier. Entries are pruned lazily on every revocation check so the
-# set stays bounded to at most (active_users × sessions) entries.
+# dict stays bounded to at most (active_users × sessions) entries.
+# LIMITATION: this blocklist is lost on process restart. Tokens revoked before a
+# restart become valid again until their original JWT expiry. Mitigate by keeping
+# jwt_ttl_hours short (≤8 h) and, for multi-instance production, replacing this
+# with a Redis SET (e.g. redis.setex(jti, ttl_seconds, "1")).
 _revoked: dict[str, datetime] = {}
 _revoked_lock = Lock()
 
@@ -52,12 +56,12 @@ def create_access_token(subject: str, extra: dict | None = None) -> str:
         "exp": int((now + timedelta(hours=settings.jwt_ttl_hours)).timestamp()),
         **(extra or {}),
     }
-    return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+    return jwt.encode(payload, settings.jwt_secret, algorithm="HS256")
 
 
 def decode_token(token: str) -> dict:
     try:
-        payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+        payload = jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
     except InvalidTokenError as e:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid token: {e}")
     if _is_revoked(payload.get("jti")):

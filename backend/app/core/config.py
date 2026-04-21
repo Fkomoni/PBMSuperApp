@@ -13,7 +13,6 @@ class Settings(BaseSettings):
 
     # ── JWT (portal sessions) ──────────────────────────────────────────
     jwt_secret: str = "change-me-in-local-dev-only-set-JWT_SECRET-in-production"
-    jwt_algorithm: str = "HS256"
     jwt_ttl_hours: int = 8
 
     def validate_secrets(self) -> None:
@@ -47,7 +46,9 @@ class Settings(BaseSettings):
     # calls (e.g. enrollee verify, provider login proxy). Provider sign-in
     # re-uses the same base URL but authenticates with the individual
     # provider's own credentials in the request body.
-    prognosis_base_url: str = "https://prognosis-api.leadwayhealth.com"
+    # Default is empty — set PROGNOSIS_BASE_URL explicitly so a misconfigured
+    # dev environment with real credentials does not silently hit production.
+    prognosis_base_url: str = ""
     prognosis_username: str | None = None
     prognosis_password: str | None = None
     # Escape hatch — if Prognosis doesn't accept `Basic <base64(user:pass)>`,
