@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime, timezone
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import Response
@@ -384,6 +385,35 @@ _ATTACH_ALLOWED_MIME = {
     "image/png", "image/jpeg", "image/jpg", "image/webp", "image/heic", "image/heif",
 }
 _ATTACH_MAX_BYTES = 8 * 1024 * 1024  # 8MB
+_ATTACH_MAX_PER_REQUEST = 10         # guard against DB exhaustion
+
+# Magic-byte signatures for each allowed MIME type.
+# Keyed by the canonical MIME; each entry is a list of (offset, prefix) tuples
+# — any one match is sufficient (files may have multiple valid signatures).
+_MAGIC: dict[str, list[tuple[int, bytes]]] = {
+    "application/pdf":  [(0, b"%PDF")],
+    "image/png":        [(0, b"\x89PNG\r\n\x1a\n")],
+    "image/jpeg":       [(0, b"\xff\xd8\xff")],
+    "image/jpg":        [(0, b"\xff\xd8\xff")],      # alias for jpeg
+    "image/webp":       [(0, b"RIFF"), (8, b"WEBP")],
+    # HEIC/HEIF: ftyp box starting at byte 4; several brand codes are valid.
+    "image/heic":       [(4, b"ftyp")],
+    "image/heif":       [(4, b"ftyp")],
+}
+
+
+def _magic_matches(data: bytes, mime: str) -> bool:
+    """Return True when the binary signature of `data` is consistent with
+    the declared `mime` type.  Falls back to True for any MIME not in the
+    table so an unknown-but-allowed type is not incorrectly rejected.
+    """
+    sigs = _MAGIC.get(mime)
+    if not sigs:
+        return True
+    for offset, prefix in sigs:
+        if data[offset: offset + len(prefix)] == prefix:
+            return True
+    return False
 
 
 def _can_see_request(req: MedicationRequest, provider: dict) -> bool:
@@ -402,7 +432,19 @@ async def upload_attachment(
     if not req or not _can_see_request(req, provider):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Request not found")
 
+    # Guard against DB exhaustion from many small uploads on a single request.
+    existing_count = len(req.attachments or [])
+    if existing_count >= _ATTACH_MAX_PER_REQUEST:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Maximum {_ATTACH_MAX_PER_REQUEST} attachments per request",
+        )
+
+    # Validate the declared MIME against the allowed set first (cheap check).
     content_type = (file.content_type or "").lower()
+    # Normalise image/jpg → image/jpeg so the magic table lookup works.
+    if content_type == "image/jpg":
+        content_type = "image/jpeg"
     if content_type not in _ATTACH_ALLOWED_MIME:
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
@@ -416,6 +458,14 @@ async def upload_attachment(
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail=f"File exceeds {_ATTACH_MAX_BYTES // (1024*1024)}MB limit",
+        )
+
+    # Verify the actual file bytes match the declared type.  This prevents an
+    # attacker from bypassing the MIME allow-list by faking the Content-Type.
+    if not _magic_matches(data, content_type):
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="File content does not match its declared type",
         )
 
     att = MedicationRequestAttachment(
@@ -483,11 +533,12 @@ async def download_attachment(
     att = db.get(MedicationRequestAttachment, attachment_id)
     if not att or att.request_id != req.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attachment not found")
-    # `inline` lets the browser render PDFs/images directly; filename kept
-    # so a right-click "Save as" has the original name.
-    safe_name = att.filename.replace('"', "")
+    # Use RFC 5987 encoding so arbitrary Unicode filenames (and any control
+    # characters / CRLF sequences that would allow header injection) are
+    # percent-encoded before they reach the response headers.
+    encoded_name = quote(att.filename, safe="")
     return Response(
         content=att.data,
         media_type=att.content_type,
-        headers={"Content-Disposition": f'inline; filename="{safe_name}"'},
+        headers={"Content-Disposition": f"inline; filename*=UTF-8''{encoded_name}"},
     )

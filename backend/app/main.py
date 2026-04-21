@@ -7,10 +7,13 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 from app.api import admin, auth, debug, lookup, medications, pharmacies, requests
 from app.core.config import settings
 from app.core.db import init_db
+from app.core.limiter import limiter
 
 # Unique per-build marker. Bump the string when you want the startup log
 # to make the running commit unmistakable.
@@ -39,6 +42,10 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     app = FastAPI(title=settings.app_name, lifespan=lifespan)
+
+    # Attach the rate-limiter state and its 429 error handler.
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
     origins = [o.strip() for o in (settings.cors_origins or "").split(",") if o.strip()]
     app.add_middleware(

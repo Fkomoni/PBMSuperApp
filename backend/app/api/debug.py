@@ -370,7 +370,7 @@ async def whatsapp_config():
 @router.get("/whatsapp/find-auth")
 async def whatsapp_find_auth(
     api_key: str = Query(..., description="The raw API key value the bot expects"),
-    to: str = Query(default="+2348188626141"),
+    to: str = Query(..., description="Recipient phone number in E.164 format, e.g. +234XXXXXXXXXX"),
 ):
     """Try every common auth scheme with the given API key against the
     configured bot path. Returns the status each returned so we can see
@@ -426,7 +426,7 @@ async def whatsapp_find_auth(
 @router.get("/whatsapp/probe")
 async def whatsapp_probe(
     path: str = Query(default=None, description="Path to POST to; defaults to WHATSAPP_SEND_PATH"),
-    to: str = Query(default="+2348188626141"),
+    to: str = Query(..., description="Recipient phone number in E.164 format, e.g. +234XXXXXXXXXX"),
     message: str = Query(default="RxHub probe - ignore"),
 ):
     """POST a one-line test message to a path on the bot and return what

@@ -1,13 +1,14 @@
 import hmac
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.db import get_db
+from app.core.limiter import limiter
 from app.core.passwords import hash_password, verify_password
 from app.core.security import create_access_token, current_admin
 from app.models import Provider
@@ -18,6 +19,16 @@ from app.services.prognosis import PrognosisAuthError, PrognosisProvider
 logger = logging.getLogger("rxhub.auth")
 
 router = APIRouter(tags=["auth"])
+
+
+def _mask_email(email: str) -> str:
+    """Partially mask an email for log output (PII reduction)."""
+    parts = email.split("@", 1)
+    if len(parts) != 2:
+        return "***"
+    local, domain = parts
+    masked_local = local[:2] + "***" if len(local) > 2 else "***"
+    return f"{masked_local}@{domain}"
 
 
 def _to_out(p: Provider) -> ProviderOut:
@@ -73,8 +84,12 @@ def _mint(p: Provider) -> LoginOut:
 
 
 @router.post("/login", response_model=LoginOut)
-async def login(body: LoginIn, db: Session = Depends(get_db)):
+@limiter.limit("20/minute")
+async def login(request: Request, body: LoginIn, db: Session = Depends(get_db)):
     """Local-first provider login.
+
+    Rate-limited to 20 attempts / minute per IP to prevent credential
+    brute-forcing.
 
     1. If email+password match a local account (admin, PBM staff, or a
        cached provider), sign the user in. No Prognosis dependency here,
@@ -85,12 +100,12 @@ async def login(body: LoginIn, db: Session = Depends(get_db)):
        can take the fast local path.
     """
     email = body.email.lower()
-    logger.info("login attempt: %s", email)
+    logger.info("login attempt: %s", _mask_email(email))
 
     # 1. Local DB (always cheap; never depends on Prognosis)
     p = db.scalar(select(Provider).where(Provider.email == email))
     if p and p.is_active and verify_password(body.password, p.password_hash):
-        logger.info("login OK via local DB: %s (role=%s)", email, p.role)
+        logger.info("login OK via local DB: %s (role=%s)", _mask_email(email), p.role)
         return _mint(p)
 
     # 2. Prognosis (real providers)
@@ -98,10 +113,10 @@ async def login(body: LoginIn, db: Session = Depends(get_db)):
         try:
             pp = await prognosis.provider_login(email, body.password)
             p = _upsert_from_prognosis(db, pp)
-            logger.info("login OK via Prognosis: %s", email)
+            logger.info("login OK via Prognosis: %s", _mask_email(email))
             return _mint(p)
         except PrognosisAuthError as e:
-            logger.warning("login Prognosis path failed for %s: %s", email, e)
+            logger.warning("login Prognosis path failed for %s: %s", _mask_email(email), e)
             # Fall through to a uniform 401 so we don't leak whether
             # Prognosis was down vs bad creds to unauthed callers.
 
