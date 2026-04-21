@@ -1,12 +1,13 @@
 import json
 import logging
+import re
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -18,6 +19,33 @@ from app.core.limiter import limiter
 
 BUILD_MARKER = "rxhub-api @ security-hardened 2026-04-21"
 
+# Fields whose values must never appear in server-side logs.
+_SENSITIVE_FIELDS = re.compile(
+    r'"(password|token|secret|key|authorization|auth|credential)[^"]*"\s*:\s*"[^"]*"',
+    re.IGNORECASE,
+)
+
+
+def _scrub(body: str) -> str:
+    """Replace values of sensitive JSON fields with REDACTED."""
+    return _SENSITIVE_FIELDS.sub(lambda m: m.group(0).rsplit(":", 1)[0] + ': "***REDACTED***"', body)
+
+
+_MAX_BODY_BYTES = 10 * 1024 * 1024  # 10 MB global request size limit
+
+
+class _RequestSizeLimitMiddleware(BaseHTTPMiddleware):
+    """Reject requests whose declared Content-Length exceeds the hard limit."""
+    async def dispatch(self, request: Request, call_next):
+        cl = request.headers.get("content-length")
+        if cl and int(cl) > _MAX_BODY_BYTES:
+            return Response(
+                content='{"detail":"Request body too large"}',
+                status_code=413,
+                media_type="application/json",
+            )
+        return await call_next(request)
+
 
 class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """Add defence-in-depth HTTP security headers to every response."""
@@ -26,11 +54,13 @@ class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload"
         # Prevent browsers from treating JSON responses as executable content.
         response.headers["Content-Security-Policy"] = "default-src 'none'"
         # Disable sensitive browser features — this is a backend API, not a page.
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        # Block legacy Flash/PDF cross-domain requests.
+        response.headers["X-Permitted-Cross-Domain-Policies"] = "none"
         return response
 
 
@@ -66,6 +96,8 @@ def create_app() -> FastAPI:
         openapi_url=None if is_prod else "/openapi.json",
     )
 
+    # Reject oversized requests before they reach any handler.
+    app.add_middleware(_RequestSizeLimitMiddleware)
     # Security headers on every response.
     app.add_middleware(_SecurityHeadersMiddleware)
 
@@ -93,12 +125,12 @@ def create_app() -> FastAPI:
     async def _log_validation_error(request: Request, exc: RequestValidationError):
         try:
             body_bytes = await request.body()
-            body_snippet = body_bytes.decode("utf-8")[:4000]
+            # Scrub sensitive field values (password, token, key, etc.) before
+            # writing to the log — the raw body is never sent back to the caller.
+            raw = body_bytes.decode("utf-8", errors="replace")[:4000]
+            body_snippet = _scrub(raw)
         except Exception:
             body_snippet = "(body unavailable)"
-        # Log the body server-side for debugging — but never send it back to
-        # the caller. A reflected body can leak passwords or PHI that a
-        # misconfigured client accidentally put in the wrong field.
         vlogger.warning("422 on %s %s · errors=%s · body=%s",
                         request.method, request.url.path,
                         json.dumps(exc.errors(), default=str)[:1500],
@@ -124,7 +156,7 @@ def create_app() -> FastAPI:
 
     @app.get("/")
     async def root():
-        return {"app": settings.app_name, "env": settings.environment, "prefix": settings.api_prefix}
+        return {"app": settings.app_name, "status": "ok"}
 
     @app.get("/health")
     async def health():

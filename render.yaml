@@ -7,8 +7,9 @@
 #      repo + branch.
 #   3. On first deploy, set every `sync: false` var in the API service's
 #      Environment tab — Render keeps them encrypted.
-#   4. Open the API service's Shell and create the first admin account:
-#         python seed_provider.py admin@leadway.com "PBM Admin" "StrongPw123!"
+#   4. Set ADMIN_BOOTSTRAP_EMAIL and ADMIN_BOOTSTRAP_PASSWORD in the API
+#      service's Environment tab — the app will auto-create the admin account
+#      on first boot. Use a strong randomly-generated password (20+ chars).
 #      (real providers auto-provision on first Prognosis sign-in.)
 
 databases:
@@ -106,6 +107,10 @@ services:
       # ── Embed handoff from a parent app the provider already signed into ──
       - key: EMBED_SHARED_SECRET
         generateValue: true
+      - key: ADMIN_BOOTSTRAP_EMAIL
+        sync: false
+      - key: ADMIN_BOOTSTRAP_PASSWORD
+        sync: false
 
   - type: web
     name: rxhub-provider-portal
@@ -129,10 +134,10 @@ services:
         name: X-Content-Type-Options
         value: nosniff
 
-      # Enforce HTTPS for 1 year; include subdomains
+      # Enforce HTTPS for 1 year; include subdomains; eligible for preload list
       - path: /*
         name: Strict-Transport-Security
-        value: max-age=31536000; includeSubDomains
+        value: max-age=31536000; includeSubDomains; preload
 
       # Only send the origin as referrer when crossing to a different origin
       - path: /*
@@ -151,6 +156,11 @@ services:
       - path: /*
         name: Permissions-Policy
         value: "camera=(), microphone=(), geolocation=(), payment=()"
+
+      # Block legacy Flash/PDF cross-domain data requests
+      - path: /*
+        name: X-Permitted-Cross-Domain-Policies
+        value: none
 
     envVars: []
     routes:
