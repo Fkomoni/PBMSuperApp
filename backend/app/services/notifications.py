@@ -14,6 +14,8 @@ services/prognosis.send_email().
 """
 from __future__ import annotations
 
+from app.core.config import settings
+
 SUPPORT_LINE = "07080627051 / 02012801051"
 BRAND_RED = "#C8102E"
 BRAND_RED_DARK = "#9c0c23"
@@ -101,20 +103,45 @@ def _diag_text(diagnoses: list[dict] | None) -> str:
     return ", ".join(parts) or "Not specified"
 
 
+def _logo_url() -> str:
+    """Resolve the absolute URL for the brand logo used in email headers.
+    Checks `email_logo_url` first (explicit override), then falls back to
+    composing it from `public_base_url`. Empty string disables the image.
+    """
+    if settings.email_logo_url:
+        return settings.email_logo_url
+    if settings.public_base_url:
+        return settings.public_base_url.rstrip("/") + "/brand/leadway-logo.jpg"
+    return ""
+
+
 def _shell(title_subtitle: tuple[str, str], inner_html: str) -> str:
-    """Wrap the body in the Leadway red header + green footer shell."""
+    """Wrap the body in the Leadway header (logo if available) + green footer shell."""
     title, subtitle = title_subtitle
+    logo = _logo_url()
+    # Logo on a white panel works across every client — Gmail/Outlook/Apple
+    # Mail all render hosted <img> with max-width. If no URL is configured
+    # the header falls back to the original red wordmark.
+    if logo:
+        header = f"""
+          <td style="background:#ffffff;padding:22px 28px;text-align:center;border-bottom:4px solid {BRAND_RED};">
+            <img src="{logo}" width="180" alt="Leadway Health HMO" style="display:inline-block;height:auto;max-width:220px;border:0;outline:none;text-decoration:none;" />
+            <div style="color:{BRAND_RED};font-size:12.5px;margin-top:10px;font-weight:600;letter-spacing:.3px;">{_e(subtitle)}</div>
+          </td>
+        """
+    else:
+        header = f"""
+          <td style="background:{BRAND_RED};padding:22px 28px;text-align:center;">
+            <div style="color:#fff;font-size:22px;font-weight:800;letter-spacing:.3px;">LEADWAY Health</div>
+            <div style="color:rgba(255,255,255,.88);font-size:12.5px;margin-top:4px;">{_e(subtitle)}</div>
+          </td>
+        """
     return f"""<!doctype html>
 <html><body style="margin:0;padding:0;background:#f5f5f7;font-family:Arial,Helvetica,sans-serif;color:{BRAND_INK};">
   <table width="100%" cellpadding="0" cellspacing="0" style="background:#f5f5f7;padding:24px 0;">
     <tr><td align="center">
       <table width="600" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:6px;overflow:hidden;max-width:600px;box-shadow:0 1px 3px rgba(0,0,0,.08);">
-        <tr>
-          <td style="background:{BRAND_RED};padding:22px 28px;text-align:center;">
-            <div style="color:#fff;font-size:22px;font-weight:800;letter-spacing:.3px;">LEADWAY Health</div>
-            <div style="color:rgba(255,255,255,.88);font-size:12.5px;margin-top:4px;">{_e(subtitle)}</div>
-          </td>
-        </tr>
+        <tr>{header}</tr>
         <tr>
           <td style="padding:26px 32px 28px;">
             {inner_html}

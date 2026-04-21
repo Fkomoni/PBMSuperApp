@@ -3,11 +3,13 @@ import logging
 import re
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -17,7 +19,9 @@ from app.core.config import settings
 from app.core.db import init_db
 from app.core.limiter import limiter
 
-BUILD_MARKER = "rxhub-api @ security-hardened 2026-04-21"
+_STATIC_DIR = Path(__file__).parent / "static"
+
+BUILD_MARKER = "rxhub-api @ security-hardened + email-logo 2026-04-21"
 
 # Fields whose values must never appear in server-side logs.
 _SENSITIVE_FIELDS = re.compile(
@@ -55,8 +59,11 @@ class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload"
-        # Prevent browsers from treating JSON responses as executable content.
-        response.headers["Content-Security-Policy"] = "default-src 'none'"
+        # Skip the lock-down CSP for the brand logo route so email clients
+        # can still render the image from a plain <img src="...">.  Every
+        # other path keeps the strict 'none' policy.
+        if not request.url.path.startswith(("/brand/", "/static/")):
+            response.headers["Content-Security-Policy"] = "default-src 'none'"
         # Disable sensitive browser features — this is a backend API, not a page.
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
         # Block legacy Flash/PDF cross-domain requests.
@@ -153,6 +160,23 @@ def create_app() -> FastAPI:
     # were somehow exploited.
     if settings.environment != "production":
         app.include_router(debug.router, prefix=settings.api_prefix)
+
+    if _STATIC_DIR.is_dir():
+        app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+
+    @app.get("/brand/leadway-logo.jpg", include_in_schema=False)
+    async def brand_logo():
+        """Stable, short-URL alias for the Leadway logo — email clients
+        prefer compact paths, and this gives us a stable URL to embed in
+        every confirmation email regardless of hosting layout changes.
+        """
+        path = _STATIC_DIR / "leadway-logo.jpg"
+        if not path.is_file():
+            return JSONResponse(status_code=404, content={"detail": "logo missing"})
+        return FileResponse(
+            path, media_type="image/jpeg",
+            headers={"Cache-Control": "public, max-age=86400"},
+        )
 
     @app.get("/")
     async def root():

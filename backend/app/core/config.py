@@ -101,6 +101,15 @@ class Settings(BaseSettings):
     admin_bootstrap_password: str | None = None
     admin_bootstrap_name: str = "RxHub Admin"
 
+    # ── Public URLs (email branding, attachments, etc.) ────────────────
+    # The backend's own public URL — used to compose absolute asset URLs
+    # that appear in member emails (e.g. the Leadway logo). Leave empty
+    # and the email header falls back to text-only.
+    public_base_url: str = ""
+    # Optional override — if set, emails use this URL for the brand logo
+    # instead of composing {public_base_url}/brand/leadway-logo.jpg.
+    email_logo_url: str = ""
+
     # ── CORS ───────────────────────────────────────────────────────────
     # Comma-separated list of allowed origins. NEVER use "*" in production.
     # Example: https://rxhub-provider-portal.onrender.com,http://localhost:3000

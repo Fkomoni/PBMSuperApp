@@ -937,12 +937,40 @@ function ProviderNewRequest({ session, initialMember, onSubmitted, onCancel }) {
           )}
         </div>
 
-        {(address?.state || state) && (
-          <div className="rx-field" style={{ marginTop: 14, marginBottom: 0 }}>
-            <label>Partner Pharmacy <span style={{ color: "var(--rx-muted)", fontWeight: 500 }}>(optional — WellaHealth auto-assigns if blank)</span></label>
-            <PharmacyPickerButton state={state || address?.state} lga={address?.lga} selected={pharmacy} onChange={setPharmacy} />
-          </div>
-        )}
+        {(() => {
+          const hasState = !!(state || address?.state);
+          if (!hasState) return null;
+          const stateL = (state || address?.state || "").toLowerCase();
+          const toPBMWhatsApp = routing.kind === "chronic" || routing.kind === "mixed" || routing.kind === "special";
+          // Lagos + Leadway PBM WhatsApp → Leadway's in-house pharmacy
+          // fulfils directly, so skip the partner-pharmacy picker.
+          if (toPBMWhatsApp && stateL === "lagos") {
+            return (
+              <div style={{
+                marginTop: 14,
+                padding: "10px 14px",
+                borderRadius: 10,
+                background: "var(--rx-green-bg)",
+                border: "1px solid #c6ebd3",
+                color: "#0d7a35",
+                fontSize: 12.5, fontWeight: 600,
+                display: "flex", alignItems: "center", gap: 8,
+              }}>
+                <RxIcon name="check-circle-2" size={14} />
+                Leadway pharmacy (Lagos) fulfils this request directly — no partner pharmacy needed.
+              </div>
+            );
+          }
+          const hint = toPBMWhatsApp
+            ? "(optional — Leadway PBM will route to the nearest partner pharmacy)"
+            : "(optional — WellaHealth auto-assigns if blank)";
+          return (
+            <div className="rx-field" style={{ marginTop: 14, marginBottom: 0 }}>
+              <label>Partner Pharmacy <span style={{ color: "var(--rx-muted)", fontWeight: 500 }}>{hint}</span></label>
+              <PharmacyPickerButton state={state || address?.state} lga={address?.lga} selected={pharmacy} onChange={setPharmacy} />
+            </div>
+          );
+        })()}
 
         {classifications.length > 0 && (
           <div className="pv-route-hint">
