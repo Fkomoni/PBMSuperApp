@@ -12,6 +12,8 @@ from sqlalchemy.orm import Session, selectinload
 from app.core.db import get_db
 from app.core.security import current_admin
 from app.models import MedicationRequest, Provider, TrackingEvent
+from app.services import wellahealth
+from app.services.wellahealth import WellaHealthError
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(current_admin)])
 
@@ -19,6 +21,7 @@ router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(curren
 def _serialize_request(req: MedicationRequest, provider: Provider | None) -> dict:
     return {
         "id": req.id,
+        "ref_code": req.ref_code,
         "enrollee_id": req.enrollee_id,
         "enrollee_name": req.enrollee_name,
         "enrollee_state": req.enrollee_state,
@@ -35,6 +38,12 @@ def _serialize_request(req: MedicationRequest, provider: Provider | None) -> dic
         "delivery": req.delivery,
         "diagnoses": req.diagnoses,
         "notes": req.notes,
+        "pharmacy_code": req.pharmacy_code,
+        "external_ref": req.external_ref,
+        "external_tracking_code": req.external_tracking_code,
+        "external_status": req.external_status,
+        "external_pharmacy_name": req.external_pharmacy_name,
+        "external_synced_at": req.external_synced_at,
         "created_at": req.created_at,
         "updated_at": req.updated_at,
         "items": [
@@ -165,6 +174,67 @@ async def summary(
         "by_classification": by_classification,
         "by_status": by_status,
         "by_state": by_state,
+    }
+
+
+@router.post("/requests/{request_id}/refresh-status")
+async def refresh_external_status(
+    request_id: str,
+    _: dict = Depends(current_admin),
+    db: Session = Depends(get_db),
+):
+    """Pull the latest fulfilment status from WellaHealth and attach a
+    tracking event. Uses the stored external_tracking_code / external_ref
+    captured at dispatch time. Safe to call repeatedly.
+    """
+    req = db.get(MedicationRequest, request_id)
+    if not req:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Request not found")
+    if req.channel != "wellahealth":
+        return {"ok": False, "error": "Request was not routed to WellaHealth", "channel": req.channel}
+    if not (req.external_tracking_code or req.external_ref):
+        return {"ok": False, "error": "No WellaHealth reference on this request yet — dispatch may have failed."}
+
+    try:
+        row = await wellahealth.find_fulfilment(
+            tracking_code=req.external_tracking_code,
+            enrollment_code=req.external_ref or req.enrollee_id,
+        )
+    except WellaHealthError as e:
+        return {"ok": False, "error": str(e)}
+
+    if not row:
+        return {"ok": False, "error": "Fulfilment not found in WellaHealth feed (it may be older than the lookback window)."}
+
+    new_status = str(row.get("status") or row.get("fulfilmentStatus") or row.get("Status") or "").strip() or None
+    pharmacy_name = row.get("pharmacyName") or row.get("PharmacyName") or req.external_pharmacy_name
+    tracking_code = row.get("trackingCode") or row.get("TrackingCode") or req.external_tracking_code
+
+    changed = new_status and new_status != req.external_status
+    req.external_status = new_status or req.external_status
+    req.external_pharmacy_name = pharmacy_name
+    req.external_tracking_code = tracking_code
+    req.external_synced_at = datetime.now(timezone.utc)
+
+    if changed:
+        db.add(TrackingEvent(
+            request_id=req.id,
+            label=f"WellaHealth status: {new_status}",
+            kind="info",
+            icon="refresh-cw",
+            at=datetime.now(timezone.utc),
+        ))
+    db.commit()
+    db.refresh(req)
+
+    return {
+        "ok": True,
+        "request_id": req.id,
+        "external_status": req.external_status,
+        "external_tracking_code": req.external_tracking_code,
+        "external_pharmacy_name": req.external_pharmacy_name,
+        "external_synced_at": req.external_synced_at,
+        "raw": row,
     }
 
 

@@ -286,11 +286,97 @@ async def create_fulfilment(request: dict) -> dict:
     return await _request("POST", FULFILMENTS_PATH, body=build_fulfilment_payload(request))
 
 
-async def list_fulfilments(page_index: int = 1, page_size: int = 50) -> Any:
-    """GET /public/v1/Fulfilments?pageIndex=&pageSize="""
+async def list_fulfilments(page_index: int = 1, page_size: int = 50, **extra: Any) -> Any:
+    """GET /public/v1/Fulfilments?pageIndex=&pageSize=&...
+
+    Any extra keyword args are forwarded as query params (e.g. trackingCode,
+    enrollmentCode) so callers can filter server-side when Wella supports it.
+    """
     if not _configured():
         raise WellaHealthError("WellaHealth credentials are not configured")
-    return await _request("GET", FULFILMENTS_PATH, params={"pageIndex": page_index, "pageSize": page_size})
+    params: dict[str, Any] = {"pageIndex": page_index, "pageSize": page_size}
+    for k, v in extra.items():
+        if v is not None and v != "":
+            params[k] = v
+    return await _request("GET", FULFILMENTS_PATH, params=params)
+
+
+def _find_fulfilment_in_payload(payload: Any, *, tracking_code: str | None = None, enrollment_code: str | None = None) -> dict | None:
+    """Walk Wella's list-fulfilments envelope looking for a matching row.
+
+    Handles the usual wrap shapes ({data:[...]}, {value:{data:[...]}}, raw
+    list). Match priority: trackingCode > enrollmentCode/enrollmentId/id.
+    """
+    items: list[Any] = []
+    if isinstance(payload, list):
+        items = payload
+    elif isinstance(payload, dict):
+        for k in ("data", "Data", "result", "Result", "items", "Items"):
+            v = payload.get(k)
+            if isinstance(v, list):
+                items = v
+                break
+        if not items and isinstance(payload.get("value"), (list, dict)):
+            return _find_fulfilment_in_payload(
+                payload["value"], tracking_code=tracking_code, enrollment_code=enrollment_code,
+            )
+
+    tc = (tracking_code or "").strip().lower()
+    ec = (enrollment_code or "").strip().lower()
+    for row in items:
+        if not isinstance(row, dict):
+            continue
+        row_tc = str(row.get("trackingCode") or row.get("TrackingCode") or "").strip().lower()
+        row_ec = str(
+            row.get("enrollmentCode") or row.get("EnrollmentCode")
+            or row.get("enrollmentId") or row.get("id") or row.get("fulfilmentId") or ""
+        ).strip().lower()
+        if tc and row_tc == tc:
+            return row
+        if ec and (row_ec == ec or row_tc == ec):
+            return row
+    return None
+
+
+async def find_fulfilment(
+    tracking_code: str | None = None,
+    enrollment_code: str | None = None,
+    max_pages: int = 10,
+) -> dict | None:
+    """Find one fulfilment by trackingCode or enrollmentCode.
+
+    Tries server-side filter params first; falls back to paginating through
+    the recent fulfilments list when Wella ignores the filter. Capped at
+    max_pages of 100 rows so one refresh never takes forever.
+    """
+    if not (tracking_code or enrollment_code):
+        return None
+
+    try:
+        narrow = await list_fulfilments(
+            page_index=1, page_size=50,
+            trackingCode=tracking_code, enrollmentCode=enrollment_code,
+        )
+        hit = _find_fulfilment_in_payload(
+            narrow, tracking_code=tracking_code, enrollment_code=enrollment_code,
+        )
+        if hit:
+            return hit
+    except WellaHealthError:
+        pass
+
+    for page in range(1, max_pages + 1):
+        payload = await list_fulfilments(page_index=page, page_size=100)
+        hit = _find_fulfilment_in_payload(
+            payload, tracking_code=tracking_code, enrollment_code=enrollment_code,
+        )
+        if hit:
+            return hit
+        if isinstance(payload, dict):
+            page_count = int(payload.get("pageCount") or 1)
+            if page >= page_count:
+                break
+    return None
 
 
 # Back-compat alias used by api/requests.py's dispatch block.

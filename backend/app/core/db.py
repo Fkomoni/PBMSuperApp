@@ -83,6 +83,11 @@ def _run_migrations() -> None:
             ("treating_doctor", "VARCHAR(255)"),
             ("ref_code",        "VARCHAR(32)"),
             ("pharmacy_code",   "VARCHAR(64)"),
+            ("external_ref",            "VARCHAR(64)"),
+            ("external_tracking_code",  "VARCHAR(64)"),
+            ("external_status",         "VARCHAR(32)"),
+            ("external_pharmacy_name",  "VARCHAR(255)"),
+            ("external_synced_at",      "TIMESTAMP WITH TIME ZONE"),
         ]
         with engine.begin() as conn:
             for col, ddl in to_add:

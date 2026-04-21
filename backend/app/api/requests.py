@@ -194,11 +194,19 @@ async def submit(
             wella_obj = wella_resp.get("value") if isinstance(wella_resp, dict) and "value" in wella_resp else wella_resp
             wella_obj = wella_obj or {}
             ref = wella_obj.get("enrollmentId") or wella_obj.get("id") or wella_obj.get("fulfilmentId")
+            tracking_code = wella_obj.get("trackingCode") or f"WTR-{(req.id or '')[:10]}"
             wella_meta = {
                 "wella_pharmacy_code": wella_obj.get("pharmacyCode"),
                 "wella_pharmacy_name": wella_obj.get("pharmacyName"),
-                "wella_tracking_code": wella_obj.get("trackingCode") or f"WTR-{(req.id or '')[:10]}",
+                "wella_tracking_code": tracking_code,
             }
+            # Persist fulfilment metadata so admin can refresh status later
+            # without having to re-scan the full Wella fulfilments list.
+            req.external_ref = str(ref) if ref else None
+            req.external_tracking_code = str(tracking_code) if tracking_code else None
+            req.external_pharmacy_name = wella_obj.get("pharmacyName")
+            req.external_status = wella_obj.get("status") or "dispatched"
+            req.external_synced_at = datetime.now(timezone.utc)
             db.add(TrackingEvent(
                 request_id=req.id,
                 label=f"Sent to WellaHealth (ref {ref or '—'})",

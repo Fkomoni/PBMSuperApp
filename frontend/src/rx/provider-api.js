@@ -77,7 +77,7 @@ const api = {
 
   summary: (days = 30) => request("/reports/summary", { query: { days } }),
 
-  listPharmacies: (state, lga) => request("/pharmacies", { query: { state, lga, limit: 30 } }),
+  listPharmacies: (state, lga) => request("/pharmacies", { query: { state, lga, limit: 500 } }),
 
   // Admin-only
   admin: {
@@ -85,6 +85,7 @@ const api = {
     requestDetail: (id) => request(`/admin/requests/${id}`),
     summary: (days = 30) => request("/admin/summary", { query: { days } }),
     listProviders: () => request("/admin/providers"),
+    refreshStatus: (id) => request(`/admin/requests/${id}/refresh-status`, { method: "POST" }),
   },
 };
 

@@ -181,14 +181,33 @@ function AdminConsole() {
 function AdminRequestDrawer({ id, onClose }) {
   const [data, setData] = rxS(null);
   const [err, setErr] = rxS(null);
+  const [refreshing, setRefreshing] = rxS(false);
+  const [refreshMsg, setRefreshMsg] = rxS(null);
 
-  rxE(() => {
-    let mounted = true;
+  const load = () => {
     providerApi.admin.requestDetail(id)
-      .then(r => { if (mounted) setData(r); })
-      .catch(e => { if (mounted) setErr(e.message); });
-    return () => { mounted = false; };
-  }, [id]);
+      .then(r => setData(r))
+      .catch(e => setErr(e.message));
+  };
+
+  rxE(() => { load(); }, [id]);
+
+  const refreshStatus = async () => {
+    setRefreshing(true); setRefreshMsg(null);
+    try {
+      const r = await providerApi.admin.refreshStatus(id);
+      if (r?.ok) {
+        setRefreshMsg(`Synced — WellaHealth status: ${r.external_status || "—"}`);
+        load();
+      } else {
+        setRefreshMsg(r?.error || "Could not refresh status");
+      }
+    } catch (e) {
+      setRefreshMsg(e.message || "Refresh failed");
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   return (
     <div className="pv-drawer">
@@ -236,6 +255,34 @@ function AdminRequestDrawer({ id, onClose }) {
 
               <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Route</div>
               <div style={{ fontSize: 13, color: "var(--rx-ink-2)", marginBottom: 16 }}>{data.route || "—"}</div>
+
+              {data.channel === "wellahealth" && (
+                <div className="mcard mcard--flat" style={{ padding: 12, marginBottom: 16 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 10 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700 }}>WellaHealth fulfilment</div>
+                    <button type="button" className="rx-btn rx-btn--ghost rx-btn--sm" style={{ width: "auto" }}
+                      onClick={refreshStatus} disabled={refreshing || !(data.external_tracking_code || data.external_ref)}>
+                      <RxIcon name={refreshing ? "loader-2" : "refresh-cw"} size={12} /> {refreshing ? "Refreshing…" : "Refresh status"}
+                    </button>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10 }}>
+                    {[
+                      ["Status", data.external_status || (data.external_ref ? "pending" : "not dispatched")],
+                      ["Tracking code", data.external_tracking_code || "—"],
+                      ["Pharmacy", data.external_pharmacy_name || "auto-assigned by WellaHealth"],
+                      ["Last synced", data.external_synced_at ? fmtDateTime(data.external_synced_at) : "—"],
+                    ].map(([k, v]) => (
+                      <div key={k} className="med__field">
+                        <div className="med__field__k">{k}</div>
+                        <div className="med__field__v">{v}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {refreshMsg && (
+                    <div style={{ marginTop: 10, fontSize: 12, color: "var(--rx-muted)" }}>{refreshMsg}</div>
+                  )}
+                </div>
+              )}
 
               {data.items?.length > 0 && (
                 <>

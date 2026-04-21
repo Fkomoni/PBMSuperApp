@@ -95,17 +95,17 @@ function PharmacyPickerButton({ state, lga, selected, onChange }) {
             <button type="button" onClick={() => onChange(null)} style={{ background: 0, border: 0, color: "inherit", cursor: "pointer", padding: 4 }} aria-label="Clear"><RxIcon name="x" size={14} /></button>
           </div>
         ) : (
-          <button type="button" className="rx-btn rx-btn--ghost rx-btn--sm" style={{ width: "auto" }}
+          <button type="button" className="rx-btn rx-btn--sm" style={{ width: "100%" }}
             onClick={() => setOpen(true)}
             disabled={!state || state.length < 3}>
-            <RxIcon name="map-pin" size={14} /> Select pharmacy
+            <RxIcon name="map-pin" size={14} /> Find Pharmacies Near This Address
           </button>
         )}
         {!selected && (
           <span style={{ fontSize: 12, color: "var(--rx-muted)" }}>
             {!state || state.length < 3
-              ? "Enter the delivery state above first"
-              : "Leave blank to let WellaHealth auto-assign"}
+              ? "Verify the delivery address above first"
+              : "Pick the partner pharmacy closest to the member — WellaHealth will fulfil there"}
           </span>
         )}
       </div>
@@ -826,7 +826,7 @@ function ProviderNewRequest({ session, initialMember, onSubmitted, onCancel }) {
           )}
         </div>
 
-        {routing.kind && routing.kind.startsWith("acute") && (
+        {(address?.state || state) && (
           <div className="rx-field" style={{ marginTop: 14, marginBottom: 0 }}>
             <label>Partner Pharmacy <span style={{ color: "var(--rx-muted)", fontWeight: 500 }}>(optional — WellaHealth auto-assigns if blank)</span></label>
             <PharmacyPickerButton state={state || address?.state} lga={address?.lga} selected={pharmacy} onChange={setPharmacy} />
