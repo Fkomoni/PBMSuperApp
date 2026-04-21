@@ -64,20 +64,46 @@ function ProviderLogin({ onBack, onSignedIn }) {
         <button className="login__back" onClick={onBack}><RxIcon name="arrow-left" size={14} /> Back to role picker</button>
         <div>
           <div className="login__quote">Prescribe it.<br /><span className="accent">We'll handle the rest.</span></div>
-          <div className="login__testimonial">Leadway RxHub pharmacy network covers 24 states and is fulfilled by vetted partner pharmacies. Your orders are auto-routed to the nearest fulfilment channel.</div>
+          <div className="login__testimonial">Leadway RxHub pharmacy network covers 236 states and is fulfilled by vetted partner pharmacies. Your orders are auto-routed to the nearest fulfilment channel.</div>
+
+          <ul style={{ listStyle: "none", padding: 0, margin: "28px 0 0", display: "grid", gap: 12 }}>
+            {[
+              { icon: "user-check",    t: "Verify member cover in real time",        s: "Live Prognosis + Leadway HMO lookup" },
+              { icon: "route",         t: "Auto-route acute vs chronic orders",      s: "WellaHealth · Leadway PBM · WhatsApp" },
+              { icon: "map-pin",       t: "Pick the pharmacy nearest the member",    s: "Partner network across Nigeria" },
+              { icon: "shield-check",  t: "Encrypted, audit-logged submissions",     s: "Every Rx stamped with a tracking code" },
+            ].map(f => (
+              <li key={f.t} style={{ display: "flex", alignItems: "flex-start", gap: 12, color: "rgba(255,255,255,.88)" }}>
+                <span style={{
+                  flex: "0 0 32px", width: 32, height: 32, borderRadius: 8,
+                  background: "rgba(255,255,255,.08)", border: "1px solid rgba(255,255,255,.12)",
+                  display: "inline-flex", alignItems: "center", justifyContent: "center",
+                }}>
+                  <RxIcon name={f.icon} size={15} />
+                </span>
+                <div>
+                  <div style={{ fontSize: 13.5, fontWeight: 700, letterSpacing: "-.005em" }}>{f.t}</div>
+                  <div style={{ fontSize: 11.5, color: "rgba(255,255,255,.58)", marginTop: 2 }}>{f.s}</div>
+                </div>
+              </li>
+            ))}
+          </ul>
         </div>
         <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 12, color: "rgba(255,255,255,.5)", fontSize: 12 }}>
           <div style={{ width: 34, height: 34, borderRadius: 8, background: "#fff", overflow: "hidden" }}>
             <img src={RX_LOGO} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
           </div>
           Leadway Health HMO · RxHub Provider v1.0
+          <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 8px", borderRadius: 999, background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)", fontSize: 10.5, fontWeight: 700, letterSpacing: ".04em", textTransform: "uppercase", color: "rgba(255,255,255,.7)" }}>
+            <RxIcon name="lock" size={10} /> TLS secured
+          </span>
         </div>
       </aside>
 
       <main className="login__panel">
         <span className="login__role-pill"><RxIcon name="stethoscope" size={13} /> Healthcare Provider</span>
         <h1 className="login__h1">Sign in</h1>
-        <p className="login__sub">Use the email registered with the Leadway Provider Network and the password issued by Prognosis.</p>
+        <p className="login__sub">Use the email registered with the Leadway Provider Network and the password issued by Leadway HMO.</p>
 
         <RxField label="Work email">
           <input className="rx-input" value={email} placeholder="doctor@clinic.com" inputMode="email" autoComplete="email"

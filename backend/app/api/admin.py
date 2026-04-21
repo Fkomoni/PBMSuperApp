@@ -58,6 +58,16 @@ def _serialize_request(req: MedicationRequest, provider: Provider | None) -> dic
             }
             for it in req.items
         ],
+        "attachments": [
+            {
+                "id": a.id,
+                "filename": a.filename,
+                "content_type": a.content_type,
+                "size_bytes": a.size_bytes,
+                "created_at": a.created_at,
+            }
+            for a in (req.attachments or [])
+        ],
     }
 
 

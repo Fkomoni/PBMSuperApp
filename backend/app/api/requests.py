@@ -1,14 +1,15 @@
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
 from app.core.routing import classify_bucket
 from app.core.security import current_provider
-from app.models import MedicationRequest, MedicationRequestItem, TrackingEvent
+from app.models import MedicationRequest, MedicationRequestAttachment, MedicationRequestItem, TrackingEvent
 from app.schemas.provider import (
     MedicationRequestIn,
     MedicationRequestOut,
@@ -83,6 +84,16 @@ def _serialize(req: MedicationRequest) -> dict:
                 "unit_price": it.unit_price,
             }
             for it in req.items
+        ],
+        "attachments": [
+            {
+                "id": a.id,
+                "filename": a.filename,
+                "content_type": a.content_type,
+                "size_bytes": a.size_bytes,
+                "created_at": a.created_at,
+            }
+            for a in (req.attachments or [])
         ],
     }
 
@@ -362,3 +373,121 @@ async def tracking(
         for e in req.events if _provider_visible(e)
     ]
     return TrackingOut(request_id=request_id, events=events)
+
+
+# ==================================================================
+# Prescription attachments (optional PDF / image uploads)
+# ==================================================================
+
+_ATTACH_ALLOWED_MIME = {
+    "application/pdf",
+    "image/png", "image/jpeg", "image/jpg", "image/webp", "image/heic", "image/heif",
+}
+_ATTACH_MAX_BYTES = 8 * 1024 * 1024  # 8MB
+
+
+def _can_see_request(req: MedicationRequest, provider: dict) -> bool:
+    """Owning provider or any admin may access a request's attachments."""
+    return req.provider_id == provider["sub"] or provider.get("role") == "admin"
+
+
+@router.post("/{request_id}/attachments")
+async def upload_attachment(
+    request_id: str,
+    file: UploadFile = File(...),
+    provider: dict = Depends(current_provider),
+    db: Session = Depends(get_db),
+):
+    req = db.get(MedicationRequest, request_id)
+    if not req or not _can_see_request(req, provider):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Request not found")
+
+    content_type = (file.content_type or "").lower()
+    if content_type not in _ATTACH_ALLOWED_MIME:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail=f"Only PDF and image files are allowed (got {content_type or 'unknown'})",
+        )
+
+    data = await file.read()
+    if len(data) == 0:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Empty file")
+    if len(data) > _ATTACH_MAX_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"File exceeds {_ATTACH_MAX_BYTES // (1024*1024)}MB limit",
+        )
+
+    att = MedicationRequestAttachment(
+        request_id=req.id,
+        filename=(file.filename or "prescription")[:255],
+        content_type=content_type,
+        size_bytes=len(data),
+        data=data,
+        uploaded_by=provider["sub"],
+    )
+    db.add(att)
+    db.add(TrackingEvent(
+        request_id=req.id,
+        label=f"Prescription attached ({att.filename})",
+        kind="done",
+        icon="paperclip",
+        at=datetime.now(timezone.utc),
+    ))
+    db.commit()
+    db.refresh(att)
+
+    return {
+        "id": att.id,
+        "filename": att.filename,
+        "content_type": att.content_type,
+        "size_bytes": att.size_bytes,
+        "created_at": att.created_at,
+    }
+
+
+@router.get("/{request_id}/attachments")
+async def list_attachments(
+    request_id: str,
+    provider: dict = Depends(current_provider),
+    db: Session = Depends(get_db),
+):
+    req = db.get(MedicationRequest, request_id)
+    if not req or not _can_see_request(req, provider):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Request not found")
+    return {
+        "request_id": req.id,
+        "items": [
+            {
+                "id": a.id,
+                "filename": a.filename,
+                "content_type": a.content_type,
+                "size_bytes": a.size_bytes,
+                "created_at": a.created_at,
+            }
+            for a in req.attachments
+        ],
+    }
+
+
+@router.get("/{request_id}/attachments/{attachment_id}")
+async def download_attachment(
+    request_id: str,
+    attachment_id: str,
+    provider: dict = Depends(current_provider),
+    db: Session = Depends(get_db),
+):
+    req = db.get(MedicationRequest, request_id)
+    if not req or not _can_see_request(req, provider):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Request not found")
+    att = db.get(MedicationRequestAttachment, attachment_id)
+    if not att or att.request_id != req.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attachment not found")
+    # `inline` lets the browser render PDFs/images directly; filename kept
+    # so a right-click "Save as" has the original name.
+    safe_name = att.filename.replace('"', "")
+    return Response(
+        content=att.data,
+        media_type=att.content_type,
+        headers={"Content-Disposition": f'inline; filename="{safe_name}"'},
+    )

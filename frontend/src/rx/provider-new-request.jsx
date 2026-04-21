@@ -75,6 +75,104 @@ function humanizeError(err) {
   return "We couldn't submit the request. Please try again or contact support on 07080627051.";
 }
 
+const ATTACH_MAX_BYTES = 8 * 1024 * 1024;
+const ATTACH_ACCEPT_MIME = ["application/pdf", "image/png", "image/jpeg", "image/jpg", "image/webp", "image/heic", "image/heif"];
+
+function _fmtBytes(n) {
+  if (!n && n !== 0) return "";
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function PrescriptionUploader({ files, onChange }) {
+  const [drag, setDrag] = rxS(false);
+  const [err, setErr] = rxS(null);
+  const inputRef = rxR(null);
+
+  const addFiles = (incoming) => {
+    setErr(null);
+    const accepted = [];
+    for (const f of incoming) {
+      if (!ATTACH_ACCEPT_MIME.includes((f.type || "").toLowerCase())) {
+        setErr(`"${f.name}" is not a PDF or image — skipped`);
+        continue;
+      }
+      if (f.size > ATTACH_MAX_BYTES) {
+        setErr(`"${f.name}" is bigger than 8MB — skipped`);
+        continue;
+      }
+      accepted.push(f);
+    }
+    if (accepted.length) onChange([...(files || []), ...accepted]);
+  };
+
+  const onDrop = (e) => {
+    e.preventDefault(); setDrag(false);
+    const fs = Array.from(e.dataTransfer?.files || []);
+    if (fs.length) addFiles(fs);
+  };
+
+  const removeAt = (idx) => onChange(files.filter((_, i) => i !== idx));
+
+  return (
+    <div>
+      <div
+        onClick={() => inputRef.current?.click()}
+        onDragOver={e => { e.preventDefault(); setDrag(true); }}
+        onDragLeave={() => setDrag(false)}
+        onDrop={onDrop}
+        style={{
+          cursor: "pointer",
+          border: `1.5px dashed ${drag ? "var(--rx-red)" : "var(--rx-line)"}`,
+          background: drag ? "var(--rx-red-bg, #fff5f5)" : "#fafafb",
+          borderRadius: 12,
+          padding: "22px 18px",
+          textAlign: "center",
+          transition: "all .15s",
+        }}
+      >
+        <div style={{ display: "inline-flex", width: 40, height: 40, borderRadius: 999, background: "#fff", alignItems: "center", justifyContent: "center", border: "1px solid var(--rx-line)", marginBottom: 10 }}>
+          <RxIcon name="file-up" size={18} />
+        </div>
+        <div style={{ fontSize: 13.5, fontWeight: 700 }}>Drop a prescription here, or click to browse</div>
+        <div style={{ fontSize: 12, color: "var(--rx-muted)", marginTop: 4 }}>PDF, PNG, JPG — up to 8MB each. Adding a file is optional.</div>
+        <input
+          ref={inputRef}
+          type="file"
+          multiple
+          accept=".pdf,image/*"
+          style={{ display: "none" }}
+          onChange={e => { addFiles(Array.from(e.target.files || [])); e.target.value = ""; }}
+        />
+      </div>
+
+      {err && <div style={{ marginTop: 8, fontSize: 12, color: "#b85c00" }}><RxIcon name="alert-triangle" size={12} /> {err}</div>}
+
+      {(files || []).length > 0 && (
+        <ul style={{ listStyle: "none", margin: "10px 0 0", padding: 0, display: "flex", flexDirection: "column", gap: 6 }}>
+          {files.map((f, i) => (
+            <li key={i} style={{
+              display: "flex", alignItems: "center", gap: 10,
+              padding: "8px 12px", borderRadius: 10,
+              border: "1px solid var(--rx-line)", background: "#fff",
+            }}>
+              <RxIcon name={(f.type || "").startsWith("image/") ? "image" : "file-text"} size={14} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{f.name}</div>
+                <div style={{ fontSize: 11.5, color: "var(--rx-muted)" }}>{_fmtBytes(f.size)}</div>
+              </div>
+              <button type="button" onClick={() => removeAt(i)} style={{ background: 0, border: 0, cursor: "pointer", color: "var(--rx-muted)", padding: 4 }} aria-label="Remove">
+                <RxIcon name="x" size={14} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function PharmacyPickerButton({ state, lga, selected, onChange }) {
   const [open, setOpen] = rxS(false);
   return (
@@ -596,6 +694,10 @@ function ProviderNewRequest({ session, initialMember, onSubmitted, onCancel }) {
   const [pharmacy, setPharmacy] = rxS(null);
   const pharmacyCode = pharmacy?.pharmacy_code || null;
 
+  // Optional prescription uploads — stored as in-memory File objects until
+  // submit, then uploaded one by one to the newly created request id.
+  const [attachments, setAttachments] = rxS([]);
+
   const [submitting, setSubmitting] = rxS(false);
   const [submitErr, setSubmitErr] = rxS(null);
 
@@ -689,6 +791,15 @@ function ProviderNewRequest({ session, initialMember, onSubmitted, onCancel }) {
         notes: notes || null,
       };
       const r = await providerApi.submitRequest(payload);
+      // Fire-and-safe-fail attachment uploads. If any one fails we still
+      // keep the submitted request — attachments are optional.
+      const rxId = r?.id || r?.request_id;
+      if (rxId && attachments.length > 0) {
+        for (const f of attachments) {
+          try { await providerApi.uploadAttachment(rxId, f); }
+          catch (ue) { console.warn("attachment upload failed:", f.name, ue); }
+        }
+      }
       onSubmitted && onSubmitted(r);
     } catch (e) {
       // Log the real error for diagnostics, show a friendly line to the provider.
@@ -850,11 +961,16 @@ function ProviderNewRequest({ session, initialMember, onSubmitted, onCancel }) {
             {URGENCY_OPTIONS.map(u => <option key={u.v} value={u.v}>{u.l}</option>)}
           </select>
         </div>
-        <div className="rx-field" style={{ marginBottom: 0 }}>
+        <div className="rx-field">
           <label>Provider Notes</label>
           <textarea className="rx-input" rows={3} placeholder="Optional notes"
             style={{ resize: "vertical", minHeight: 80, fontFamily: "inherit" }}
             value={notes} onChange={e => setNotes(e.target.value)} />
+        </div>
+
+        <div className="rx-field" style={{ marginBottom: 0 }}>
+          <label>Prescription attachments <span style={{ color: "var(--rx-muted)", fontWeight: 500 }}>(optional — PDF or image, up to 8MB each)</span></label>
+          <PrescriptionUploader files={attachments} onChange={setAttachments} />
         </div>
       </section>
 

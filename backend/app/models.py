@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, LargeBinary, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
@@ -87,6 +87,7 @@ class MedicationRequest(Base):
     provider: Mapped[Provider] = relationship(back_populates="requests")
     items: Mapped[list["MedicationRequestItem"]] = relationship(back_populates="request", cascade="all,delete-orphan")
     events: Mapped[list["TrackingEvent"]] = relationship(back_populates="request", cascade="all,delete-orphan", order_by="TrackingEvent.at")
+    attachments: Mapped[list["MedicationRequestAttachment"]] = relationship(back_populates="request", cascade="all,delete-orphan", order_by="MedicationRequestAttachment.created_at")
 
 
 class MedicationRequestItem(Base):
@@ -118,3 +119,22 @@ class TrackingEvent(Base):
     at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, nullable=False)
 
     request: Mapped[MedicationRequest] = relationship(back_populates="events")
+
+
+class MedicationRequestAttachment(Base):
+    """Optional prescription uploads (PDF / image) that providers attach to
+    a request. Bytes are stored inline — fine for <10MB files, keeps the
+    app runnable on any Postgres/SQLite without external object storage.
+    """
+    __tablename__ = "medication_request_attachments"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    request_id: Mapped[str] = mapped_column(String(16), ForeignKey("medication_requests.id"), index=True, nullable=False)
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    content_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    data: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    uploaded_by: Mapped[str | None] = mapped_column(String(32), ForeignKey("providers.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, nullable=False)
+
+    request: Mapped[MedicationRequest] = relationship(back_populates="attachments")

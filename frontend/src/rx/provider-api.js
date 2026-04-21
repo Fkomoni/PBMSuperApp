@@ -75,6 +75,43 @@ const api = {
   listRequests: (params = {}) => request("/medication-requests", { query: params }),
   getTracking: (id) => request(`/medication-requests/${id}/tracking`),
 
+  listAttachments: (id) => request(`/medication-requests/${id}/attachments`),
+  // Upload a prescription file. Pass the original File object; we build the
+  // multipart form and stamp the bearer token manually so it doesn't pass
+  // through the json-defaulting `request()` helper.
+  uploadAttachment: async (id, file) => {
+    const token = getToken();
+    const fd = new FormData();
+    fd.append("file", file);
+    const r = await fetch(`${API_BASE}/medication-requests/${id}/attachments`, {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: fd,
+    });
+    if (!r.ok) {
+      let msg = `Upload failed (${r.status})`;
+      try { const j = await r.json(); msg = j.detail || j.message || msg; } catch {}
+      throw new Error(msg);
+    }
+    return r.json();
+  },
+  attachmentUrl: (reqId, attId) => `${API_BASE}/medication-requests/${reqId}/attachments/${attId}`,
+  // Opens an attachment in a new tab using the bearer token. Falls back to
+  // the raw URL if blob creation fails (e.g. cross-origin quirks).
+  openAttachment: async (reqId, attId) => {
+    const token = getToken();
+    const r = await fetch(`${API_BASE}/medication-requests/${reqId}/attachments/${attId}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!r.ok) throw new Error(`Download failed (${r.status})`);
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const w = window.open(url, "_blank");
+    // Revoke a few minutes later so the tab has time to render.
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    return w;
+  },
+
   summary: (days = 30) => request("/reports/summary", { query: { days } }),
 
   listPharmacies: (state, lga) => request("/pharmacies", { query: { state, lga, limit: 500 } }),

@@ -284,6 +284,31 @@ function AdminRequestDrawer({ id, onClose }) {
                 </div>
               )}
 
+              {data.attachments?.length > 0 && (
+                <>
+                  <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Prescription attachments</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 16 }}>
+                    {data.attachments.map(a => (
+                      <button key={a.id} type="button"
+                        onClick={() => providerApi.openAttachment(data.id, a.id).catch(e => alert(e.message))}
+                        style={{
+                          display: "flex", alignItems: "center", gap: 10,
+                          padding: "8px 12px", borderRadius: 10,
+                          border: "1px solid var(--rx-line)", background: "#fff",
+                          color: "var(--rx-ink-2)", textAlign: "left", cursor: "pointer", width: "100%",
+                        }}>
+                        <RxIcon name={(a.content_type || "").startsWith("image/") ? "image" : "file-text"} size={14} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{a.filename}</div>
+                          <div style={{ fontSize: 11.5, color: "var(--rx-muted)" }}>{a.content_type} · {Math.round((a.size_bytes || 0) / 1024)} KB</div>
+                        </div>
+                        <RxIcon name="external-link" size={12} />
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+
               {data.items?.length > 0 && (
                 <>
                   <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Medications</div>
