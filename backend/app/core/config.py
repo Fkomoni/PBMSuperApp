@@ -60,6 +60,14 @@ class Settings(BaseSettings):
     # ── Parent-app embed handoff ───────────────────────────────────────
     embed_shared_secret: str | None = None
 
+    # ── Admin bootstrap ────────────────────────────────────────────────
+    # Set these two env vars on Render to auto-create (or promote) an
+    # admin account on startup. Safe to leave on — the bootstrap is
+    # idempotent and only touches the single row whose email matches.
+    admin_bootstrap_email: str | None = None
+    admin_bootstrap_password: str | None = None
+    admin_bootstrap_name: str = "RxHub Admin"
+
     # ── CORS ───────────────────────────────────────────────────────────
     cors_origins: str = "*"
 

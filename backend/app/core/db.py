@@ -52,6 +52,48 @@ def init_db() -> None:
 
     Base.metadata.create_all(bind=engine)
     _run_migrations()
+    _bootstrap_admin()
+
+
+def _bootstrap_admin() -> None:
+    """If ADMIN_BOOTSTRAP_EMAIL + ADMIN_BOOTSTRAP_PASSWORD are set, upsert
+    that account with role=admin on every boot. Idempotent: creates the
+    row on first run, resets password + ensures role=admin on later runs
+    so the operator can recover access by just rotating the env var.
+    """
+    from app.core.config import settings
+    from app.core.passwords import hash_password
+    from app.models import Provider
+    from sqlalchemy import select
+
+    email = (settings.admin_bootstrap_email or "").strip().lower()
+    password = settings.admin_bootstrap_password
+    if not email or not password:
+        return
+
+    import logging as _l
+    log = _l.getLogger("rxhub.boot")
+    try:
+        with SessionLocal() as db:
+            existing = db.scalar(select(Provider).where(Provider.email == email))
+            if existing:
+                existing.role = "admin"
+                existing.is_active = True
+                existing.password_hash = hash_password(password)
+                existing.name = existing.name or settings.admin_bootstrap_name
+                log.info("BOOT  admin bootstrap: promoted %s to role=admin", email)
+            else:
+                db.add(Provider(
+                    email=email,
+                    name=settings.admin_bootstrap_name,
+                    password_hash=hash_password(password),
+                    role="admin",
+                    is_active=True,
+                ))
+                log.info("BOOT  admin bootstrap: created %s with role=admin", email)
+            db.commit()
+    except Exception as e:  # never let a bootstrap glitch crash the app
+        log.warning("BOOT  admin bootstrap failed: %s", e)
 
 
 def _run_migrations() -> None:
