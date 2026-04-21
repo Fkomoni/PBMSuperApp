@@ -9,6 +9,7 @@ Endpoints:
 """
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import Any
 
@@ -63,12 +64,30 @@ def _unwrap_list(payload: Any) -> list[dict]:
 
 
 async def _fetch_in_state(state: str, lga: str | None) -> list[dict]:
-    """Ask Wella. Normalize the shape. Trim to pharmacies with a usable code."""
+    """Ask Wella. Normalize the shape. Trim to pharmacies with a usable code.
+
+    For state-level queries we paginate through every page (Wella returns
+    pageCount in the envelope) so Lagos' 20+ LGAs all come through.
+    LGA-scoped queries typically fit in one page of 200.
+    """
     if lga:
         raw = await wellahealth.pharmacies_in_lga(state, lga, page_size=200)
+        items = _unwrap_list(raw)
     else:
-        raw = await wellahealth.pharmacies_in_state(state, page_size=200)
-    items = _unwrap_list(raw)
+        raw1 = await wellahealth.pharmacies_in_state(state, page_index=1, page_size=200)
+        page_count = int((isinstance(raw1, dict) and raw1.get("pageCount")) or 1)
+        items = list(_unwrap_list(raw1))
+
+        if page_count > 1:
+            tasks = [
+                wellahealth.pharmacies_in_state(state, page_index=p, page_size=200)
+                for p in range(2, page_count + 1)
+            ]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for r in results:
+                if not isinstance(r, Exception):
+                    items.extend(_unwrap_list(r))
+
     return [p for p in (_normalize(x) for x in items) if p.get("pharmacy_code") and p.get("name")]
 
 
@@ -76,7 +95,7 @@ async def _fetch_in_state(state: str, lga: str | None) -> list[dict]:
 async def list_pharmacies(
     state: str = Query(..., description="Nigerian state, e.g. Lagos"),
     lga: str | None = Query(default=None, description="Optional LGA — narrows list"),
-    limit: int = Query(default=30, ge=1, le=100),
+    limit: int = Query(default=500, ge=1, le=1000),
 ):
     key = (state.strip().lower(), (lga or "*").strip().lower())
     now = time.time()
