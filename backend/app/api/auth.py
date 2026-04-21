@@ -1,8 +1,6 @@
 import hmac
 import logging
-from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-from threading import Lock
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
@@ -14,7 +12,7 @@ from app.core.db import get_db
 from app.core.limiter import limiter
 from app.core.passwords import hash_password, verify_password
 from app.core.security import create_access_token, current_admin, current_provider, revoke_token
-from app.models import Provider
+from app.models import LoginLockout, Provider
 from app.schemas.provider import LoginIn, LoginOut, ProviderOut, ProviderRegisterIn
 from app.services import prognosis
 from app.services.prognosis import PrognosisAuthError, PrognosisProvider
@@ -24,33 +22,42 @@ audit = logging.getLogger("rxhub.audit")
 
 router = APIRouter(tags=["auth"])
 
-# ── Per-account login lockout ─────────────────────────────────────────────────
-# Tracks consecutive failures per lowercase email. Locked accounts return a
-# generic 401 (same message as bad password) to prevent user enumeration.
-# In-memory — resets on restart. Acceptable for single-instance deploys.
-_LOCKOUT_THRESHOLD = 3        # consecutive failures before lockout
+# ── Per-account login lockout (DB-backed, survives restarts) ─────────────────
+_LOCKOUT_THRESHOLD = 3          # consecutive failures before lockout
 _LOCKOUT_DURATION = timedelta(hours=24)
-_login_failures: dict[str, list[datetime]] = defaultdict(list)
-_login_lock = Lock()
 
 
-def _is_locked(email: str) -> bool:
+def _is_locked(email: str, db: Session) -> bool:
+    row = db.get(LoginLockout, email)
+    if not row or not row.locked_until:
+        return False
+    if datetime.now(timezone.utc) < row.locked_until:
+        return True
+    # Lock has expired — clean up the row so the counter resets.
+    db.delete(row)
+    db.commit()
+    return False
+
+
+def _record_failure(email: str, db: Session) -> None:
     now = datetime.now(timezone.utc)
-    cutoff = now - _LOCKOUT_DURATION
-    with _login_lock:
-        recent = [t for t in _login_failures[email] if t > cutoff]
-        _login_failures[email] = recent
-        return len(recent) >= _LOCKOUT_THRESHOLD
+    row = db.get(LoginLockout, email)
+    if row:
+        row.failure_count += 1
+        row.last_failure_at = now
+        if row.failure_count >= _LOCKOUT_THRESHOLD:
+            row.locked_until = now + _LOCKOUT_DURATION
+    else:
+        row = LoginLockout(email=email, failure_count=1, last_failure_at=now)
+        db.add(row)
+    db.commit()
 
 
-def _record_failure(email: str) -> None:
-    with _login_lock:
-        _login_failures[email].append(datetime.now(timezone.utc))
-
-
-def _clear_failures(email: str) -> None:
-    with _login_lock:
-        _login_failures.pop(email, None)
+def _clear_failures(email: str, db: Session) -> None:
+    row = db.get(LoginLockout, email)
+    if row:
+        db.delete(row)
+        db.commit()
 
 
 def _mask_email(email: str) -> str:
@@ -136,14 +143,14 @@ async def login(request: Request, body: LoginIn, db: Session = Depends(get_db)):
     logger.info("login attempt: %s", _mask_email(email))
 
     # Reject early if the account is locked (too many recent failures).
-    if _is_locked(email):
+    if _is_locked(email, db):
         audit.warning("event=login result=locked actor=%s", _mask_email(email))
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
 
     # 1. Local DB (always cheap; never depends on Prognosis)
     p = db.scalar(select(Provider).where(Provider.email == email))
     if p and p.is_active and verify_password(body.password, p.password_hash):
-        _clear_failures(email)
+        _clear_failures(email, db)
         logger.info("login OK via local DB: %s (role=%s)", _mask_email(email), p.role)
         audit.info("event=login result=ok method=local actor=%s role=%s", _mask_email(email), p.role)
         return _mint(p)
@@ -153,7 +160,7 @@ async def login(request: Request, body: LoginIn, db: Session = Depends(get_db)):
         try:
             pp = await prognosis.provider_login(email, body.password)
             p = _upsert_from_prognosis(db, pp)
-            _clear_failures(email)
+            _clear_failures(email, db)
             logger.info("login OK via Prognosis: %s", _mask_email(email))
             audit.info("event=login result=ok method=prognosis actor=%s", _mask_email(email))
             return _mint(p)
@@ -162,7 +169,7 @@ async def login(request: Request, body: LoginIn, db: Session = Depends(get_db)):
             # Fall through to a uniform 401 so we don't leak whether
             # Prognosis was down vs bad creds to unauthed callers.
 
-    _record_failure(email)
+    _record_failure(email, db)
     audit.warning("event=login result=fail actor=%s", _mask_email(email))
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
 

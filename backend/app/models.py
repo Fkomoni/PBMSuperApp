@@ -138,3 +138,18 @@ class MedicationRequestAttachment(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, nullable=False)
 
     request: Mapped[MedicationRequest] = relationship(back_populates="attachments")
+
+
+class LoginLockout(Base):
+    """Tracks consecutive failed login attempts per email address.
+
+    A row is created on the first failure and updated on each subsequent one.
+    When failure_count reaches the threshold the account is locked until
+    locked_until. A successful login deletes the row entirely.
+    """
+    __tablename__ = "login_lockouts"
+
+    email: Mapped[str] = mapped_column(String(255), primary_key=True)
+    failure_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_failure_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now)
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
