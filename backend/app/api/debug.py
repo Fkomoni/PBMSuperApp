@@ -351,15 +351,22 @@ async def whatsapp_config():
     }
 
 
-@router.get("/whatsapp/find-auth")
-async def whatsapp_find_auth(
-    api_key: str = Query(..., description="The raw API key value the bot expects"),
-    to: str = Query(..., description="Recipient phone number in E.164 format, e.g. +234XXXXXXXXXX"),
-):
+class _FindAuthIn(BaseModel):
+    api_key: str
+    to: str
+
+
+@router.post("/whatsapp/find-auth")
+async def whatsapp_find_auth(body: _FindAuthIn):
     """Try every common auth scheme with the given API key against the
     configured bot path. Returns the status each returned so we can see
     which header format the bot accepts without redeploying.
+
+    Accepts a JSON body (not query params) so the API key never appears
+    in server access logs, browser history, or proxy caches.
     """
+    api_key = body.api_key
+    to = body.to
     import httpx
     from app.services import whatsapp as wa
 

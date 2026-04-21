@@ -38,7 +38,6 @@ function ProviderLogin({ onBack, onSignedIn }) {
   const [email, setEmail] = rxS("");
   const [password, setPassword] = rxS("");
   const [showPw, setShowPw] = rxS(false);
-  const [remember, setRemember] = rxS(true);
   const [err, setErr] = rxS(null);
   const [loading, setLoading] = rxS(false);
 
@@ -125,10 +124,6 @@ function ProviderLogin({ onBack, onSignedIn }) {
         </RxField>
 
         <div className="login__row">
-          <label className="login__check">
-            <input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} />
-            <span>Remember this device</span>
-          </label>
           <a className="login__forgot" style={{ marginLeft: "auto" }}>Forgot password?</a>
         </div>
 

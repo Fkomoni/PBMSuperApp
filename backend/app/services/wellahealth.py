@@ -117,9 +117,8 @@ async def _request(method: str, path: str, *, params: dict | None = None, body: 
         data = {"raw": resp.text}
 
     import logging as _l
-    _l.getLogger("rxhub.wellahealth").info(
-        "Wella %s %s → HTTP %s · body=%s", method, path, resp.status_code, str(data)[:1500]
-    )
+    _l.getLogger("rxhub.wellahealth").info("Wella %s %s → HTTP %s", method, path, resp.status_code)
+    _l.getLogger("rxhub.wellahealth").debug("Wella %s %s body=%s", method, path, str(data)[:1500])
 
     if resp.status_code >= 400:
         title = (isinstance(data, dict) and (data.get("message") or data.get("error") or data.get("title"))) or None
@@ -387,17 +386,20 @@ dispatch_fulfilment = create_fulfilment
 # Pharmacy lookups
 # ==================================================================
 async def pharmacies_in_state(state: str, page_index: int = 1, page_size: int = 200) -> Any:
-    return await _request("GET", PHARMACY_STATE_PATH.format(stateName=state),
+    from urllib.parse import quote as _q
+    return await _request("GET", PHARMACY_STATE_PATH.format(stateName=_q(state, safe="")),
                           params={"pageIndex": page_index, "pageSize": page_size})
 
 
 async def pharmacies_in_lga(state: str, lga: str, page_index: int = 1, page_size: int = 200) -> Any:
-    return await _request("GET", PHARMACY_LGA_PATH.format(stateName=state, lgaName=lga),
+    from urllib.parse import quote as _q
+    return await _request("GET", PHARMACY_LGA_PATH.format(stateName=_q(state, safe=""), lgaName=_q(lga, safe="")),
                           params={"pageIndex": page_index, "pageSize": page_size})
 
 
 async def lgas_in_state(state: str) -> Any:
-    return await _request("GET", PHARMACY_LGA_LIST_PATH.format(stateName=state))
+    from urllib.parse import quote as _q
+    return await _request("GET", PHARMACY_LGA_LIST_PATH.format(stateName=_q(state, safe="")))
 
 
 # ==================================================================

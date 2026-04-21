@@ -6,11 +6,12 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.db import get_db
+from app.core.limiter import limiter
 from app.core.security import current_admin
 from app.models import MedicationRequest, Provider, TrackingEvent
 from app.services import wellahealth
@@ -75,7 +76,9 @@ def _serialize_request(req: MedicationRequest, provider: Provider | None) -> dic
 
 
 @router.get("/requests")
+@limiter.limit("120/minute")
 async def list_all_requests(
+    request: Request,
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     channel: str | None = Query(default=None, description="wellahealth | leadway_pbm_whatsapp_1 | leadway_pbm_whatsapp_2"),
@@ -125,7 +128,9 @@ async def list_all_requests(
 
 
 @router.get("/requests/{request_id}")
+@limiter.limit("120/minute")
 async def request_detail(
+    request: Request,
     request_id: str,
     _: dict = Depends(current_admin),
     db: Session = Depends(get_db),
@@ -144,7 +149,9 @@ async def request_detail(
 
 
 @router.get("/summary")
+@limiter.limit("60/minute")
 async def summary(
+    request: Request,
     days: int = Query(default=30, ge=1, le=365),
     _: dict = Depends(current_admin),
     db: Session = Depends(get_db),
@@ -193,7 +200,9 @@ async def summary(
 
 
 @router.post("/requests/{request_id}/refresh-status")
+@limiter.limit("30/minute")
 async def refresh_external_status(
+    request: Request,
     request_id: str,
     admin_ctx: dict = Depends(current_admin),
     db: Session = Depends(get_db),
@@ -254,22 +263,34 @@ async def refresh_external_status(
 
 
 @router.get("/providers")
+@limiter.limit("60/minute")
 async def list_providers(
+    request: Request,
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
     _: dict = Depends(current_admin),
     db: Session = Depends(get_db),
 ):
     audit.info("event=admin_list_providers actor=%s", _.get("sub", "?"))
-    rows = db.scalars(select(Provider).order_by(Provider.created_at.desc())).all()
-    return [
-        {
-            "id": p.id,
-            "name": p.name,
-            "email": p.email,
-            "role": p.role,
-            "facility": p.facility,
-            "phone": p.phone,
-            "is_active": p.is_active,
-            "created_at": p.created_at,
-        }
-        for p in rows
-    ]
+    total = db.scalar(select(func.count(Provider.id))) or 0
+    rows = db.scalars(
+        select(Provider).order_by(Provider.created_at.desc()).offset(offset).limit(limit)
+    ).all()
+    return {
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "items": [
+            {
+                "id": p.id,
+                "name": p.name,
+                "email": p.email,
+                "role": p.role,
+                "facility": p.facility,
+                "phone": p.phone,
+                "is_active": p.is_active,
+                "created_at": p.created_at,
+            }
+            for p in rows
+        ],
+    }

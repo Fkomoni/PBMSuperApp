@@ -127,14 +127,13 @@ async def _fetch_api_token() -> str:
     except Exception:
         data = {"raw": resp.text}
 
-    snippet = str(data)[:400]
-    logger.info("ApiUsers/Login → HTTP %s · body=%s", resp.status_code, snippet)
-
     if resp.status_code >= 400:
-        raise PrognosisAuthError(f"ApiUsers/Login rejected ({resp.status_code}): {snippet[:200]}")
+        snippet = str(data)[:200]
+        raise PrognosisAuthError(f"ApiUsers/Login rejected ({resp.status_code}): {snippet}")
     bearer = _extract_bearer(data)
     if not bearer:
-        raise PrognosisAuthError(f"ApiUsers/Login returned no token. Body={snippet[:200]}")
+        raise PrognosisAuthError("ApiUsers/Login returned no token")
+    logger.info("ApiUsers/Login → HTTP %s · token_set=True · len=%d", resp.status_code, len(bearer))
     return bearer
 
 

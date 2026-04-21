@@ -122,7 +122,7 @@ const api = {
     return w;
   },
 
-  summary: (days = 30) => request("/reports/summary", { query: { days } }),
+  summary: (days = 30) => request("/admin/summary", { query: { days } }),
 
   listPharmacies: (state, lga) => request("/pharmacies", { query: { state, lga, limit: 500 } }),
 
