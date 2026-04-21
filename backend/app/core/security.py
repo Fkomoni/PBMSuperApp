@@ -1,18 +1,53 @@
+import uuid
 from datetime import datetime, timedelta, timezone
+from threading import Lock
 
+import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError, jwt
+from jwt.exceptions import InvalidTokenError
 
 from app.core.config import settings
 
 bearer = HTTPBearer(auto_error=False)
 
+# ── Token revocation blocklist ────────────────────────────────────────────────
+# In-memory set keyed by (jti, exp). Suitable for single-instance deploys on
+# Render free tier. Entries are pruned lazily on every revocation check so the
+# set stays bounded to at most (active_users × sessions) entries.
+_revoked: dict[str, datetime] = {}
+_revoked_lock = Lock()
+
+
+def _prune_revoked() -> None:
+    now = datetime.now(timezone.utc)
+    with _revoked_lock:
+        expired = [jti for jti, exp in _revoked.items() if exp < now]
+        for jti in expired:
+            del _revoked[jti]
+
+
+def revoke_token(jti: str, expires_at: datetime) -> None:
+    _prune_revoked()
+    with _revoked_lock:
+        _revoked[jti] = expires_at
+
+
+def _is_revoked(jti: str | None) -> bool:
+    if not jti:
+        return False
+    _prune_revoked()
+    with _revoked_lock:
+        return jti in _revoked
+
+
+# ── Token creation / decoding ─────────────────────────────────────────────────
 
 def create_access_token(subject: str, extra: dict | None = None) -> str:
     now = datetime.now(timezone.utc)
     payload = {
         "sub": subject,
+        "jti": str(uuid.uuid4()),   # unique token id — used for revocation
         "iat": int(now.timestamp()),
         "exp": int((now + timedelta(hours=settings.jwt_ttl_hours)).timestamp()),
         **(extra or {}),
@@ -22,9 +57,12 @@ def create_access_token(subject: str, extra: dict | None = None) -> str:
 
 def decode_token(token: str) -> dict:
     try:
-        return jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
-    except JWTError as e:
+        payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+    except InvalidTokenError as e:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid token: {e}")
+    if _is_revoked(payload.get("jti")):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has been revoked")
+    return payload
 
 
 def _require_token(creds: HTTPAuthorizationCredentials | None) -> dict:

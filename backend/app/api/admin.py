@@ -3,6 +3,7 @@ that splits by routing channel (WellaHealth vs Leadway PBM WhatsApp #1/#2).
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -14,6 +15,8 @@ from app.core.security import current_admin
 from app.models import MedicationRequest, Provider, TrackingEvent
 from app.services import wellahealth
 from app.services.wellahealth import WellaHealthError
+
+audit = logging.getLogger("rxhub.audit")
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(current_admin)])
 
@@ -190,7 +193,7 @@ async def summary(
 @router.post("/requests/{request_id}/refresh-status")
 async def refresh_external_status(
     request_id: str,
-    _: dict = Depends(current_admin),
+    admin_ctx: dict = Depends(current_admin),
     db: Session = Depends(get_db),
 ):
     """Pull the latest fulfilment status from WellaHealth and attach a
@@ -236,6 +239,7 @@ async def refresh_external_status(
         ))
     db.commit()
     db.refresh(req)
+    audit.info("event=admin_refresh_status actor=%s target=%s result=%s", admin_ctx.get("sub", "?"), request_id, req.external_status)
 
     return {
         "ok": True,
