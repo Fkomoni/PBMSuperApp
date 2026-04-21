@@ -28,8 +28,8 @@ router = APIRouter(tags=["auth"])
 # Tracks consecutive failures per lowercase email. Locked accounts return a
 # generic 401 (same message as bad password) to prevent user enumeration.
 # In-memory — resets on restart. Acceptable for single-instance deploys.
-_LOCKOUT_THRESHOLD = 10       # consecutive failures before lockout
-_LOCKOUT_DURATION = timedelta(minutes=15)
+_LOCKOUT_THRESHOLD = 3        # consecutive failures before lockout
+_LOCKOUT_DURATION = timedelta(hours=24)
 _login_failures: dict[str, list[datetime]] = defaultdict(list)
 _login_lock = Lock()
 
