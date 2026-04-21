@@ -1,6 +1,8 @@
+import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 from threading import Lock
+from typing import TYPE_CHECKING
 
 import jwt
 from fastapi import Depends, HTTPException, status
@@ -10,39 +12,85 @@ from jwt.exceptions import InvalidTokenError
 from app.core.config import settings
 
 bearer = HTTPBearer(auto_error=False)
+_log = logging.getLogger("rxhub.security")
 
-# ── Token revocation blocklist ────────────────────────────────────────────────
-# In-memory dict keyed by jti → expiry. Suitable for single-instance deploys on
-# Render free tier. Entries are pruned lazily on every revocation check so the
-# dict stays bounded to at most (active_users × sessions) entries.
-# LIMITATION: this blocklist is lost on process restart. Tokens revoked before a
-# restart become valid again until their original JWT expiry. Mitigate by keeping
-# jwt_ttl_hours short (≤8 h) and, for multi-instance production, replacing this
-# with a Redis SET (e.g. redis.setex(jti, ttl_seconds, "1")).
-_revoked: dict[str, datetime] = {}
-_revoked_lock = Lock()
+# ── Redis client (lazy, optional) ─────────────────────────────────────────────
+# Initialised once on first use. If REDIS_URL is unset or Redis is unreachable,
+# _redis() returns None and every operation falls back to the in-memory dict.
+_redis_client = None
+_redis_lock = Lock()
 
 
-def _prune_revoked() -> None:
+def _redis():
+    global _redis_client
+    if not settings.redis_url:
+        return None
+    with _redis_lock:
+        if _redis_client is not None:
+            return _redis_client
+        try:
+            import redis as _r
+            client = _r.from_url(
+                settings.redis_url,
+                decode_responses=True,
+                socket_timeout=1.0,
+                socket_connect_timeout=1.0,
+            )
+            client.ping()
+            _redis_client = client
+            _log.info("Redis revocation store connected: %s", settings.redis_url.split("@")[-1])
+        except Exception as e:
+            _log.warning("Redis unavailable — falling back to in-memory revocation: %s", e)
+            _redis_client = None
+    return _redis_client
+
+
+# ── In-memory fallback ────────────────────────────────────────────────────────
+# Used when Redis is not configured or temporarily unreachable. Lost on restart
+# (8h TTL mitigates the window). Thread-safe via _mem_lock.
+_mem_revoked: dict[str, datetime] = {}
+_mem_lock = Lock()
+
+
+def _mem_prune() -> None:
     now = datetime.now(timezone.utc)
-    with _revoked_lock:
-        expired = [jti for jti, exp in _revoked.items() if exp < now]
-        for jti in expired:
-            del _revoked[jti]
+    with _mem_lock:
+        expired = [j for j, exp in _mem_revoked.items() if exp < now]
+        for j in expired:
+            del _mem_revoked[j]
 
+
+# ── Public revocation API ─────────────────────────────────────────────────────
 
 def revoke_token(jti: str, expires_at: datetime) -> None:
-    _prune_revoked()
-    with _revoked_lock:
-        _revoked[jti] = expires_at
+    """Mark a token as revoked. Persists to Redis when available."""
+    ttl = max(1, int((expires_at - datetime.now(timezone.utc)).total_seconds()))
+    r = _redis()
+    if r is not None:
+        try:
+            r.setex(f"revoked:{jti}", ttl, "1")
+            return
+        except Exception as e:
+            _log.warning("Redis setex failed, using in-memory fallback: %s", e)
+    # In-memory fallback
+    _mem_prune()
+    with _mem_lock:
+        _mem_revoked[jti] = expires_at
 
 
 def _is_revoked(jti: str | None) -> bool:
     if not jti:
         return False
-    _prune_revoked()
-    with _revoked_lock:
-        return jti in _revoked
+    r = _redis()
+    if r is not None:
+        try:
+            return bool(r.exists(f"revoked:{jti}"))
+        except Exception as e:
+            _log.warning("Redis exists failed, using in-memory fallback: %s", e)
+    # In-memory fallback
+    _mem_prune()
+    with _mem_lock:
+        return jti in _mem_revoked
 
 
 # ── Token creation / decoding ─────────────────────────────────────────────────
@@ -51,7 +99,7 @@ def create_access_token(subject: str, extra: dict | None = None) -> str:
     now = datetime.now(timezone.utc)
     payload = {
         "sub": subject,
-        "jti": str(uuid.uuid4()),   # unique token id — used for revocation
+        "jti": str(uuid.uuid4()),
         "iat": int(now.timestamp()),
         "exp": int((now + timedelta(hours=settings.jwt_ttl_hours)).timestamp()),
         **(extra or {}),
@@ -80,8 +128,6 @@ def _require_token(creds: HTTPAuthorizationCredentials | None) -> dict:
 
 def current_provider(creds: HTTPAuthorizationCredentials = Depends(bearer)) -> dict:
     payload = _require_token(creds)
-    # Admins can call every provider endpoint (e.g. to look at a member on
-    # someone else's behalf); everyone else must be an actual provider.
     if payload.get("role") not in ("provider", "admin"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Provider role required")
     return payload

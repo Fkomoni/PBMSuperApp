@@ -41,6 +41,12 @@ class Settings(BaseSettings):
     # ── Database ───────────────────────────────────────────────────────
     database_url: str | None = None
 
+    # ── Redis (JWT revocation blocklist) ───────────────────────────────
+    # When set, logout tokens are stored in Redis so revocation survives
+    # restarts and works across multiple instances. Falls back to in-memory
+    # if unset or if the connection fails.
+    redis_url: str | None = None
+
     # ── Prognosis (Leadway legacy) ─────────────────────────────────────
     # Base URL + a service-account username/password used for server-to-server
     # calls (e.g. enrollee verify, provider login proxy). Provider sign-in
