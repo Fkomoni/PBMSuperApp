@@ -1,5 +1,6 @@
 import hmac
 import logging
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
@@ -10,13 +11,14 @@ from app.core.config import settings
 from app.core.db import get_db
 from app.core.limiter import limiter
 from app.core.passwords import hash_password, verify_password
-from app.core.security import create_access_token, current_admin
+from app.core.security import create_access_token, current_admin, current_provider, revoke_token
 from app.models import Provider
 from app.schemas.provider import LoginIn, LoginOut, ProviderOut, ProviderRegisterIn
 from app.services import prognosis
 from app.services.prognosis import PrognosisAuthError, PrognosisProvider
 
 logger = logging.getLogger("rxhub.auth")
+audit = logging.getLogger("rxhub.audit")
 
 router = APIRouter(tags=["auth"])
 
@@ -106,6 +108,7 @@ async def login(request: Request, body: LoginIn, db: Session = Depends(get_db)):
     p = db.scalar(select(Provider).where(Provider.email == email))
     if p and p.is_active and verify_password(body.password, p.password_hash):
         logger.info("login OK via local DB: %s (role=%s)", _mask_email(email), p.role)
+        audit.info("event=login result=ok method=local actor=%s role=%s", _mask_email(email), p.role)
         return _mint(p)
 
     # 2. Prognosis (real providers)
@@ -114,19 +117,21 @@ async def login(request: Request, body: LoginIn, db: Session = Depends(get_db)):
             pp = await prognosis.provider_login(email, body.password)
             p = _upsert_from_prognosis(db, pp)
             logger.info("login OK via Prognosis: %s", _mask_email(email))
+            audit.info("event=login result=ok method=prognosis actor=%s", _mask_email(email))
             return _mint(p)
         except PrognosisAuthError as e:
             logger.warning("login Prognosis path failed for %s: %s", _mask_email(email), e)
             # Fall through to a uniform 401 so we don't leak whether
             # Prognosis was down vs bad creds to unauthed callers.
 
+    audit.warning("event=login result=fail actor=%s", _mask_email(email))
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
 
 
 @router.post("/providers/register", response_model=ProviderOut, status_code=status.HTTP_201_CREATED)
 async def register(
     body: ProviderRegisterIn,
-    _: dict = Depends(current_admin),
+    admin_ctx: dict = Depends(current_admin),
     db: Session = Depends(get_db),
 ):
     """Create a local-only provider (e.g. PBM admin / break-glass). Requires
@@ -149,6 +154,7 @@ async def register(
     db.add(p)
     db.commit()
     db.refresh(p)
+    audit.info("event=provider_register result=ok actor=%s target=%s", _mask_email(admin_ctx.get("email", "?")), _mask_email(body.email))
     return _to_out(p)
 
 
@@ -211,3 +217,22 @@ async def session_exchange(request: Request, body: ExchangeIn, db: Session = Dep
         return _mint(p)
 
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Provide prognosis_token or (email + parent_shared_secret)")
+
+
+# ── Logout ────────────────────────────────────────────────────────────────────
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+async def logout(payload: dict = Depends(current_provider)):
+    """Revoke the caller's JWT immediately.
+
+    Adds the token's `jti` claim to an in-memory blocklist so subsequent
+    requests with the same token are rejected even within its TTL window.
+    The frontend should discard the token regardless of this call's outcome.
+    """
+    jti = payload.get("jti")
+    if jti:
+        exp_ts = payload.get("exp", 0)
+        expires_at = datetime.fromtimestamp(exp_ts, tz=timezone.utc)
+        revoke_token(jti, expires_at)
+        logger.info("logout: revoked jti=%s for provider=%s", jti, payload.get("sub", "?"))
+        audit.info("event=logout result=ok actor=%s jti=%s", _mask_email(payload.get("email", "?")), jti)

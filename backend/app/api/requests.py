@@ -242,7 +242,7 @@ async def submit(
                 label="Awaiting retry of WellaHealth dispatch",
                 kind="warn",
                 icon="alert-triangle",
-                note=str(e),
+                note="Upstream fulfilment service error — the PBM team has been alerted",
                 at=datetime.now(timezone.utc),
             ))
         db.commit()
@@ -283,7 +283,7 @@ async def submit(
                 label="Awaiting retry of WhatsApp dispatch",
                 kind="warn",
                 icon="alert-triangle",
-                note=str(e),
+                note="Notification channel error — the PBM team has been alerted",
                 at=datetime.now(timezone.utc),
             ))
         db.commit()
@@ -325,7 +325,7 @@ async def submit(
                 label="Member email not sent (Prognosis)",
                 kind="warn",
                 icon="mail",
-                note=str(e),
+                note="Email relay service error — member will be contacted by the PBM team",
                 at=datetime.now(timezone.utc),
             ))
         db.commit()

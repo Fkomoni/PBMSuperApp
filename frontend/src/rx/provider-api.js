@@ -57,7 +57,13 @@ const api = {
     if (data && data.provider) setSession({ role: "provider", ...data.provider });
     return data;
   },
-  logout: () => { setToken(null); setSession(null); },
+  logout: async () => {
+    // Tell the server to revoke the token (blocklist the jti).
+    // Discard local state regardless of whether the server call succeeds.
+    try { await request("/logout", { method: "POST" }); } catch (_) {}
+    setToken(null);
+    setSession(null);
+  },
 
   // Parent-app handoff: pass either a Prognosis bearer (prognosis_token) or
   // { email, parent_shared_secret } that matches the backend's EMBED_SHARED_SECRET.

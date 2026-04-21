@@ -1,23 +1,28 @@
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from app.core.config import settings
+from app.core.limiter import limiter
 from app.core.security import current_provider
 from app.services import icd10, places, prognosis
 from app.services.prognosis import PrognosisAuthError
 
 logger = logging.getLogger(__name__)
+audit = logging.getLogger("rxhub.audit")
 
 router = APIRouter(prefix="/lookup", tags=["lookup"], dependencies=[Depends(current_provider)])
 
 
 @router.get("/enrollee")
-async def enrollee(enrollee_id: str = Query(..., alias="enrollee_id")):
+@limiter.limit("60/minute")
+async def enrollee(request: Request, enrollee_id: str = Query(..., alias="enrollee_id", max_length=64),
+                   provider: dict = Depends(current_provider)):
     """Verify enrollee against Prognosis. Requires PROGNOSIS_USERNAME /
     PASSWORD. Falls back to a stub in dev when those aren't configured so
     the frontend flow can still be clicked through.
     """
+    audit.info("event=enrollee_lookup actor=%s target=%s", provider.get("sub", "?"), enrollee_id)
     if (settings.prognosis_username and settings.prognosis_password) or settings.prognosis_auth_header:
         try:
             data = await prognosis.verify_enrollee(enrollee_id)

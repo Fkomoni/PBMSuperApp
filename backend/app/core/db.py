@@ -79,9 +79,17 @@ def _bootstrap_admin() -> None:
             if existing:
                 existing.role = "admin"
                 existing.is_active = True
-                existing.password_hash = hash_password(password)
                 existing.name = existing.name or settings.admin_bootstrap_name
-                log.info("BOOT  admin bootstrap: promoted %s to role=admin", email)
+                # Only reset the password hash when the account was created by
+                # Prognosis auto-provision (placeholder hash) — not on every boot.
+                # This prevents an accidental env-var leak from immediately
+                # cycling the admin password on the running instance.
+                _placeholder = "!prognosis-managed!"
+                if not existing.password_hash or _placeholder in existing.password_hash:
+                    existing.password_hash = hash_password(password)
+                    log.info("BOOT  admin bootstrap: promoted %s and set password", email)
+                else:
+                    log.info("BOOT  admin bootstrap: confirmed role=admin for %s (pw unchanged)", email)
             else:
                 db.add(Provider(
                     email=email,
