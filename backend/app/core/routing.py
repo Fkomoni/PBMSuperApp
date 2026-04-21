@@ -23,10 +23,31 @@ except Exception:  # pragma: no cover — zoneinfo missing on weird runtimes
 
 SPECIAL_COHORTS = {"hormonal", "cancer", "autoimmune", "fertility", "supplements", "supplement"}
 
-# LGAs at the far reaches of Lagos state where Leadway's in-house pharmacy
-# can't practically fulfil — these always route pure-acute orders to a
-# WellaHealth partner pharmacy regardless of any other rule adjustments.
-_ACUTE_PILOT_LGAS = {"ibeju-lekki", "epe"}
+# Lagos LGAs where Leadway's in-house pharmacy can't practically fulfil —
+# pure-acute orders in these LGAs always route to a WellaHealth partner
+# pharmacy regardless of time of day.  Key = normalized slug, value =
+# the pretty name surfaced in the route label for traceability.
+_ACUTE_PILOT_LGAS = {
+    "ibeju-lekki":   "Ibeju-Lekki",
+    "epe":           "Epe",
+    "eti-osa":       "Eti-Osa",
+    "ojo":           "Ojo",
+    "badagry":       "Badagry",
+}
+
+# Neighbourhood / area tokens that fall within the pilot zones but may
+# come through Google Places with a different (or missing) LGA — treat
+# a boundary-match on the formatted address as authoritative.
+_ACUTE_PILOT_AREAS = {
+    "ajah":           "Ajah",
+    "badore":         "Badore",
+    "sangotedo":      "Sangotedo",
+    "alaba":          "Alaba",
+    "iba":            "Iba",
+    "ajangbadi":      "Ajangbadi",
+    "shibiri":        "Shibiri",
+    "satellite-town": "Satellite Town",
+}
 
 # Leadway PBM WhatsApp operating window (Africa/Lagos, no DST).
 _BUSINESS_START_HOUR = 8    # 08:00
@@ -39,6 +60,43 @@ def _norm_lga(s: str | None) -> str:
         return ""
     cleaned = re.sub(r"\blga\b", "", s.strip().lower())
     return re.sub(r"[\s\-_/]+", "-", cleaned).strip("-")
+
+
+def _addr_slug(s: str | None) -> str:
+    """Collapse a formatted address into a hyphen-separated lowercase slug.
+
+    "1, Ajah Road, Eti-Osa, Lagos" → "1-ajah-road-eti-osa-lagos"
+    Lets us use boundary-anchored token matching without tripping on
+    punctuation or inconsistent spacing.
+    """
+    if not s:
+        return ""
+    t = re.sub(r"[,/_]+", " ", s.lower())
+    return re.sub(r"[\s\-]+", "-", t).strip("-")
+
+
+def _match_acute_pilot(lga: str | None, formatted: str | None) -> str | None:
+    """Return the pretty pilot name if this delivery falls into a Lagos
+    far-reach acute-pilot zone, else None.
+
+    Priority: exact LGA match first (authoritative when Google Places
+    parsed admin_area_level_2 correctly), then a boundary-match on the
+    formatted-address slug against both LGA names and neighbourhood
+    tokens so a missing/mis-parsed LGA never blocks routing.
+    """
+    lga_key = _norm_lga(lga)
+    if lga_key in _ACUTE_PILOT_LGAS:
+        return _ACUTE_PILOT_LGAS[lga_key]
+
+    slug = _addr_slug(formatted)
+    if slug:
+        for key, name in _ACUTE_PILOT_LGAS.items():
+            if re.search(rf"(^|-){re.escape(key)}(-|$)", slug):
+                return name
+        for key, name in _ACUTE_PILOT_AREAS.items():
+            if re.search(rf"(^|-){re.escape(key)}(-|$)", slug):
+                return name
+    return None
 
 
 def _in_business_hours(now: datetime) -> bool:
@@ -59,20 +117,18 @@ def classify_bucket(
     state: str | None,
     now: datetime | None = None,
     lga: str | None = None,
+    formatted: str | None = None,
 ) -> dict:
     now = now or datetime.now()
     classes = {c.lower() for c in classifications if c}
     is_lagos = (state or "").strip().lower() == "lagos"
-    lga_key = _norm_lga(lga)
-    is_pilot_lga = lga_key in _ACUTE_PILOT_LGAS
+    pilot_name = _match_acute_pilot(lga, formatted)
 
     has_special = bool(classes & SPECIAL_COHORTS)
     has_chronic = "chronic" in classes
     has_acute = "acute" in classes
 
     # ─── Non-acute family (special cohorts / mixed / chronic) ───────────
-    # Lagos vs outside decides which PBM number gets pinged; the behaviour
-    # is unified per the 2026-04 routing refresh.
     if has_special or (has_chronic and has_acute):
         if is_lagos:
             kind = "special-lagos" if has_special else "mixed-lagos"
@@ -96,9 +152,8 @@ def classify_bucket(
 
     # ─── Pure acute ──────────────────────────────────────────────────────
     if has_acute:
-        # 1) Pilot LGAs (Ibeju-Lekki / Epe) always go to Wella — logistics.
-        if is_pilot_lga:
-            pilot_name = "Ibeju-Lekki" if lga_key == "ibeju-lekki" else "Epe"
+        # 1) Far-reach Lagos pilot zones → Wella regardless of time.
+        if pilot_name:
             return {
                 "kind": "acute-lagos-pilot",
                 "channel": "wellahealth",

@@ -144,10 +144,15 @@ async def submit(
     # state if the provider left it blank.
     state = payload.member_state or enrollee.get("state")
     # LGA comes from the Google-Places-parsed delivery address. Used by the
-    # Ibeju-Lekki / Epe acute pilot rule so even a mis-detected state can't
-    # divert those far-reach orders away from WellaHealth.
+    # Lagos far-reach acute pilot rule so even a mis-detected state can't
+    # divert those orders away from WellaHealth. We also forward the full
+    # formatted address so neighbourhood tokens (Ajah, Sangotedo, Alaba,
+    # Satellite Town, …) can trigger the pilot when the LGA itself is missing.
     delivery_lga = payload.delivery.lga if payload.delivery else None
-    route = classify_bucket(route_kinds, state=state, lga=delivery_lga)
+    delivery_formatted = payload.delivery.formatted if payload.delivery else None
+    route = classify_bucket(
+        route_kinds, state=state, lga=delivery_lga, formatted=delivery_formatted,
+    )
 
     # Provider-supplied values win when Prognosis returned nothing; otherwise
     # Prognosis is authoritative. Keeps legacy member records up to date

@@ -639,7 +639,23 @@ function AddressFieldInline({ value, onChange, placeholder }) {
 }
 
 // ─── Routing preview (mirrors backend rules) ────────────────────────
-const ACUTE_PILOT_LGAS = new Set(["ibeju-lekki", "epe"]);
+const ACUTE_PILOT_LGAS = {
+  "ibeju-lekki":  "Ibeju-Lekki",
+  "epe":          "Epe",
+  "eti-osa":      "Eti-Osa",
+  "ojo":          "Ojo",
+  "badagry":      "Badagry",
+};
+const ACUTE_PILOT_AREAS = {
+  "ajah":           "Ajah",
+  "badore":         "Badore",
+  "sangotedo":      "Sangotedo",
+  "alaba":          "Alaba",
+  "iba":            "Iba",
+  "ajangbadi":      "Ajangbadi",
+  "shibiri":        "Shibiri",
+  "satellite-town": "Satellite Town",
+};
 const SPECIAL_COHORT_KINDS = new Set(["hormonal", "cancer", "autoimmune", "fertility", "supplements", "supplement"]);
 
 function _normLgaKey(s) {
@@ -648,6 +664,31 @@ function _normLgaKey(s) {
     .replace(/\blga\b/g, "")
     .replace(/[\s\-_/]+/g, "-")
     .replace(/^-+|-+$/g, "");
+}
+
+function _addrSlug(s) {
+  if (!s) return "";
+  return String(s).toLowerCase()
+    .replace(/[,/_]+/g, " ")
+    .replace(/[\s\-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function _matchAcutePilot(lga, formatted) {
+  const k = _normLgaKey(lga);
+  if (k && ACUTE_PILOT_LGAS[k]) return ACUTE_PILOT_LGAS[k];
+  const slug = _addrSlug(formatted);
+  if (!slug) return null;
+  const tryMatch = (dict) => {
+    for (const [key, name] of Object.entries(dict)) {
+      // Escape regex, then search for a full slug-segment match.
+      const esc = key.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
+      const re = new RegExp(`(^|-)${esc}(-|$)`);
+      if (re.test(slug)) return name;
+    }
+    return null;
+  };
+  return tryMatch(ACUTE_PILOT_LGAS) || tryMatch(ACUTE_PILOT_AREAS);
 }
 
 // Leadway PBM operating window — Mon-Fri 08:00-16:59 Africa/Lagos (UTC+1,
@@ -661,10 +702,9 @@ function _inLagosBusinessHours(now = new Date()) {
   return dow >= 1 && dow <= 5 && hour >= 8 && hour < 17;
 }
 
-function previewRoute({ classifications, state, lga, now }) {
+function previewRoute({ classifications, state, lga, formatted, now }) {
   const isLagos = (state || "").toLowerCase() === "lagos";
-  const lgaKey = _normLgaKey(lga);
-  const isPilotLga = ACUTE_PILOT_LGAS.has(lgaKey);
+  const pilotName = _matchAcutePilot(lga, formatted);
 
   const hasChronic = classifications.includes("chronic");
   const hasAcute = classifications.includes("acute");
@@ -678,8 +718,7 @@ function previewRoute({ classifications, state, lga, now }) {
   }
 
   if (hasAcute) {
-    if (isPilotLga) {
-      const pilotName = lgaKey === "ibeju-lekki" ? "Ibeju-Lekki" : "Epe";
+    if (pilotName) {
       return { channel: `WellaHealth partner pharmacy (${pilotName} pilot)`, kind: "acute-pilot" };
     }
     if (_inLagosBusinessHours(now)) {
@@ -769,8 +808,13 @@ function ProviderNewRequest({ session, initialMember, onSubmitted, onCancel }) {
   const validDrugs = drugs.filter(d => d.drug_name && d.dose && d.frequency && d.duration_days);
   const classifications = Array.from(new Set(validDrugs.map(d => d.classification).filter(Boolean)));
   const routing = rxM(
-    () => previewRoute({ classifications, state, lga: address?.lga }),
-    [classifications.join("|"), state, address?.lga],
+    () => previewRoute({
+      classifications,
+      state,
+      lga: address?.lga,
+      formatted: address?.formatted,
+    }),
+    [classifications.join("|"), state, address?.lga, address?.formatted],
   );
 
   const canSubmit =
