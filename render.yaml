@@ -118,6 +118,40 @@ services:
       - path: /*
         name: Cache-Control
         value: no-cache
+
+      # Prevent framing (clickjacking)
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+
+      # Stop browsers from MIME-sniffing away from the declared content-type
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+
+      # Enforce HTTPS for 1 year; include subdomains
+      - path: /*
+        name: Strict-Transport-Security
+        value: max-age=31536000; includeSubDomains
+
+      # Only send the origin as referrer when crossing to a different origin
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+
+      # CSP: lock down script/connect sources to the known API host.
+      # 'unsafe-inline' is required because the app uses inline JSX/scripts
+      # loaded directly from <script> tags without a bundler. Tighten to a
+      # nonce-based policy if a build step is introduced in future.
+      - path: /*
+        name: Content-Security-Policy
+        value: "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://rxhub-provider-api.onrender.com; img-src 'self' data: blob:; font-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'self';"
+
+      # Disable powerful browser features not needed by the portal
+      - path: /*
+        name: Permissions-Policy
+        value: "camera=(), microphone=(), geolocation=(), payment=()"
+
     envVars: []
     routes:
       - type: rewrite

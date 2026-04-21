@@ -7,16 +7,20 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.api import admin, auth, debug, lookup, medications, pharmacies, requests
 from app.core.config import settings
 from app.core.db import init_db
+from app.core.limiter import limiter
 
 BUILD_MARKER = "rxhub-api @ security-hardened 2026-04-21"
 
 
 class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Add defence-in-depth HTTP security headers to every response."""
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
@@ -28,28 +32,11 @@ class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Fail hard in production if insecure defaults are still in place.
+    settings.validate_secrets()
     init_db()
     logger = logging.getLogger("rxhub.boot")
     logger.setLevel(logging.INFO)
-
-    # Validate critical configuration at startup — fail fast rather than silently
-    # minting tokens with a publicly known secret.
-    _KNOWN_WEAK_SECRETS = {
-        "change-me-in-prod",
-        "change-me-in-local-dev-only-set-JWT_SECRET-in-production",
-        "secret",
-        "jwt_secret",
-    }
-    if settings.environment == "production" and settings.jwt_secret in _KNOWN_WEAK_SECRETS:
-        raise RuntimeError(
-            "JWT_SECRET is set to a known insecure default. "
-            "Set JWT_SECRET to a cryptographically random value of at least 32 characters."
-        )
-    if settings.environment == "production" and len(settings.jwt_secret) < 32:
-        raise RuntimeError(
-            "JWT_SECRET must be at least 32 characters in production."
-        )
-
     logger.info("=" * 60)
     logger.info("BOOT  %s", BUILD_MARKER)
     logger.info("BOOT  env=%s  prefix=%s  server_time=%s",
@@ -64,51 +51,54 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title=settings.app_name, lifespan=lifespan)
-
-    # ── Security headers on every response ──────────────────────────────
-    app.add_middleware(_SecurityHeadersMiddleware)
-
-    # ── CORS ─────────────────────────────────────────────────────────────
-    # Parse the comma-separated CORS_ORIGINS env var. In local dev with an
-    # empty value we allow localhost only; never fall back to "*".
-    origins_raw = (settings.cors_origins or "").strip()
-    if origins_raw and origins_raw != "*":
-        origins = [o.strip() for o in origins_raw.split(",") if o.strip()]
-    elif settings.environment != "production":
-        # Local dev convenience: allow common localhost ports
-        origins = ["http://localhost:3000", "http://localhost:8000", "http://127.0.0.1:3000"]
-    else:
-        # Production requires CORS_ORIGINS to be explicitly set
-        raise RuntimeError(
-            "CORS_ORIGINS must be set to a comma-separated list of allowed origins in production. "
-            "Example: https://rxhub-provider-portal.onrender.com"
-        )
-
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=origins,
-        allow_credentials=True,
-        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type", "Accept"],
+    is_prod = settings.environment == "production"
+    app = FastAPI(
+        title=settings.app_name,
+        lifespan=lifespan,
+        # Suppress interactive API docs in production — they expose the full
+        # endpoint inventory and schema to unauthenticated callers.
+        docs_url=None if is_prod else "/docs",
+        redoc_url=None if is_prod else "/redoc",
+        openapi_url=None if is_prod else "/openapi.json",
     )
 
-    # ── Validation error handler (no body reflection) ─────────────────
+    # Security headers on every response.
+    app.add_middleware(_SecurityHeadersMiddleware)
+
+    # Attach the rate-limiter state and its 429 error handler.
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+    origins = [o.strip() for o in (settings.cors_origins or "").split(",") if o.strip()]
+    use_wildcard = not origins or origins == ["*"]
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"] if use_wildcard else origins,
+        # allow_credentials MUST be False when allow_origins is "*" — the CORS
+        # spec forbids the combination and browsers will refuse the response.
+        allow_credentials=not use_wildcard,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    # Log Pydantic validation errors with a body snippet so we can see
+    # exactly which field tripped the 422 on /medication-requests, etc.
     vlogger = logging.getLogger("rxhub.validation")
 
     @app.exception_handler(RequestValidationError)
     async def _log_validation_error(request: Request, exc: RequestValidationError):
         try:
             body_bytes = await request.body()
-            body_snippet = body_bytes.decode("utf-8", errors="replace")[:4000]
+            body_snippet = body_bytes.decode("utf-8")[:4000]
         except Exception:
             body_snippet = "(body unavailable)"
+        # Log the body server-side for debugging — but never send it back to
+        # the caller. A reflected body can leak passwords or PHI that a
+        # misconfigured client accidentally put in the wrong field.
         vlogger.warning("422 on %s %s · errors=%s · body=%s",
                         request.method, request.url.path,
                         json.dumps(exc.errors(), default=str)[:1500],
                         body_snippet)
-        # Do NOT reflect the request body back — it may contain credentials
-        # or sensitive patient data.
         return JSONResponse(
             status_code=422,
             content={"detail": exc.errors()},
@@ -121,9 +111,10 @@ def create_app() -> FastAPI:
     app.include_router(requests.router, prefix=settings.api_prefix)
     app.include_router(admin.router, prefix=settings.api_prefix)
 
-    # ── Debug router: excluded entirely in production ─────────────────
-    # Even though every endpoint requires admin auth, there is no reason
-    # to expose diagnostic tooling to the public internet in production.
+    # Debug router is admin-gated AND suppressed entirely in production so
+    # no diagnostic surface (PHI lookups, token refresh, email probes) is
+    # reachable on live infrastructure even if a misconfigured JWT secret
+    # were somehow exploited.
     if settings.environment != "production":
         app.include_router(debug.router, prefix=settings.api_prefix)
 

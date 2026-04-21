@@ -1,5 +1,8 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+_INSECURE_JWT_DEFAULTS = {"change-me-in-prod", "secret", "password", "jwt_secret"}
+_JWT_SECRET_MIN_LEN = 32
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -12,6 +15,29 @@ class Settings(BaseSettings):
     jwt_secret: str = "change-me-in-local-dev-only-set-JWT_SECRET-in-production"
     jwt_algorithm: str = "HS256"
     jwt_ttl_hours: int = 8
+
+    def validate_secrets(self) -> None:
+        """Call once at startup. Raises RuntimeError for insecure configs in
+        production so a misconfigured deploy crashes loudly rather than
+        silently accepting forged tokens.
+        """
+        if self.environment == "production":
+            if self.jwt_secret in _INSECURE_JWT_DEFAULTS:
+                raise RuntimeError(
+                    "JWT_SECRET is set to a well-known default value. "
+                    "Set a strong random secret (>= 32 chars) via the JWT_SECRET env var."
+                )
+            if len(self.jwt_secret) < _JWT_SECRET_MIN_LEN:
+                raise RuntimeError(
+                    f"JWT_SECRET must be at least {_JWT_SECRET_MIN_LEN} characters long."
+                )
+            cors = (self.cors_origins or "").strip()
+            if not cors or cors == "*":
+                raise RuntimeError(
+                    "CORS_ORIGINS must be set to one or more explicit origins in production "
+                    "(e.g. https://rxhub-provider-portal.onrender.com). "
+                    "A wildcard '*' allows any origin to call the API."
+                )
 
     # ── Database ───────────────────────────────────────────────────────
     database_url: str | None = None

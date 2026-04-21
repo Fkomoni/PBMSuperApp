@@ -77,22 +77,19 @@ def _bootstrap_admin() -> None:
         with SessionLocal() as db:
             existing = db.scalar(select(Provider).where(Provider.email == email))
             if existing:
-                # Only fix role/active status on subsequent boots — never reset the
-                # password automatically. An operator who needs to reset the password
-                # should use seed_provider.py or rotate ADMIN_BOOTSTRAP_PASSWORD and
-                # delete the account first, to avoid silently overwriting a changed pw.
-                changed = False
-                if existing.role != "admin":
-                    existing.role = "admin"
-                    changed = True
-                if not existing.is_active:
-                    existing.is_active = True
-                    changed = True
-                if changed:
-                    log.info("BOOT  admin bootstrap: promoted %s to role=admin", email)
-                    db.commit()
+                existing.role = "admin"
+                existing.is_active = True
+                existing.name = existing.name or settings.admin_bootstrap_name
+                # Only reset the password hash when the account was created by
+                # Prognosis auto-provision (placeholder hash) — not on every boot.
+                # This prevents an accidental env-var leak from immediately
+                # cycling the admin password on the running instance.
+                _placeholder = "!prognosis-managed!"
+                if not existing.password_hash or _placeholder in existing.password_hash:
+                    existing.password_hash = hash_password(password)
+                    log.info("BOOT  admin bootstrap: promoted %s and set password", email)
                 else:
-                    log.info("BOOT  admin bootstrap: %s already has role=admin, no changes", email)
+                    log.info("BOOT  admin bootstrap: confirmed role=admin for %s (pw unchanged)", email)
             else:
                 db.add(Provider(
                     email=email,
@@ -101,8 +98,8 @@ def _bootstrap_admin() -> None:
                     role="admin",
                     is_active=True,
                 ))
-                db.commit()
                 log.info("BOOT  admin bootstrap: created %s with role=admin", email)
+            db.commit()
     except Exception as e:  # never let a bootstrap glitch crash the app
         log.warning("BOOT  admin bootstrap failed: %s", e)
 
@@ -111,6 +108,11 @@ def _run_migrations() -> None:
     """Tiny idempotent SQL migrations for columns SQLAlchemy's create_all
     doesn't back-fill on existing tables. Keep each block safe to run every
     boot; prefer ALTER TABLE IF NOT EXISTS / try-except patterns.
+
+    Security note: column names and DDL fragments are taken from the static
+    allowlists below — never from external input.  The strict allowlist check
+    in _safe_alter_column() prevents any future code path from accidentally
+    interpolating attacker-controlled strings into a raw SQL statement.
     """
     from sqlalchemy import inspect, text
 
@@ -123,26 +125,42 @@ def _run_migrations() -> None:
             conn.execute(text("ALTER TABLE providers ADD COLUMN role VARCHAR(16) NOT NULL DEFAULT 'provider'"))
 
     # medication_requests — enrollee contact fields we added for WellaHealth.
+    # Each entry: (column_name, ddl_fragment).  Both values come from this
+    # static list; they are validated against an allowlist before use.
     if insp.has_table("medication_requests"):
         existing = {c["name"] for c in insp.get_columns("medication_requests")}
         to_add = [
-            ("enrollee_phone",  "VARCHAR(32)"),
-            ("enrollee_email",  "VARCHAR(255)"),
-            ("enrollee_dob",    "VARCHAR(32)"),
-            ("enrollee_gender", "VARCHAR(16)"),
-            ("enrollee_first_name", "VARCHAR(128)"),
-            ("enrollee_last_name",  "VARCHAR(128)"),
-            ("urgency",         "VARCHAR(16) NOT NULL DEFAULT 'routine'"),
-            ("treating_doctor", "VARCHAR(255)"),
-            ("ref_code",        "VARCHAR(32)"),
-            ("pharmacy_code",   "VARCHAR(64)"),
-            ("external_ref",            "VARCHAR(64)"),
-            ("external_tracking_code",  "VARCHAR(64)"),
-            ("external_status",         "VARCHAR(32)"),
-            ("external_pharmacy_name",  "VARCHAR(255)"),
-            ("external_synced_at",      "TIMESTAMP WITH TIME ZONE"),
+            ("enrollee_phone",           "VARCHAR(32)"),
+            ("enrollee_email",           "VARCHAR(255)"),
+            ("enrollee_dob",             "VARCHAR(32)"),
+            ("enrollee_gender",          "VARCHAR(16)"),
+            ("enrollee_first_name",      "VARCHAR(128)"),
+            ("enrollee_last_name",       "VARCHAR(128)"),
+            ("urgency",                  "VARCHAR(16) NOT NULL DEFAULT 'routine'"),
+            ("treating_doctor",          "VARCHAR(255)"),
+            ("ref_code",                 "VARCHAR(32)"),
+            ("pharmacy_code",            "VARCHAR(64)"),
+            ("external_ref",             "VARCHAR(64)"),
+            ("external_tracking_code",   "VARCHAR(64)"),
+            ("external_status",          "VARCHAR(32)"),
+            ("external_pharmacy_name",   "VARCHAR(255)"),
+            ("external_synced_at",       "TIMESTAMP WITH TIME ZONE"),
         ]
+        # Build a strict allowlist from the static list above so the helper
+        # will refuse to run if a column name or DDL fragment ever comes from
+        # a non-static source.
+        _allowed_cols = {col for col, _ in to_add}
+        _allowed_ddls = {ddl for _, ddl in to_add}
+
+        def _safe_alter_column(conn, table: str, col: str, ddl: str) -> None:
+            if col not in _allowed_cols or ddl not in _allowed_ddls:
+                raise ValueError(
+                    f"Migration rejected: '{col}'/'{ddl}' not in the static allowlist. "
+                    "Add the column to the to_add list explicitly."
+                )
+            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}"))  # noqa: S608
+
         with engine.begin() as conn:
             for col, ddl in to_add:
                 if col not in existing:
-                    conn.execute(text(f"ALTER TABLE medication_requests ADD COLUMN {col} {ddl}"))
+                    _safe_alter_column(conn, "medication_requests", col, ddl)

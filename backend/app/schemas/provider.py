@@ -6,7 +6,7 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 
 class LoginIn(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(max_length=256)
 
 
 class ProviderOut(BaseModel):
@@ -26,11 +26,11 @@ class LoginOut(BaseModel):
 
 class ProviderRegisterIn(BaseModel):
     email: EmailStr
-    password: str = Field(min_length=8)
-    name: str = Field(min_length=2)
-    prognosis_id: str | None = None
-    facility: str | None = None
-    phone: str | None = None
+    password: str = Field(min_length=8, max_length=256)
+    name: str = Field(min_length=2, max_length=128)
+    prognosis_id: str | None = Field(default=None, max_length=64)
+    facility: str | None = Field(default=None, max_length=255)
+    phone: str | None = Field(default=None, max_length=32)
 
 
 class EnrolleeOut(BaseModel):
@@ -51,8 +51,8 @@ class EnrolleeOut(BaseModel):
 
 
 class DiagnosisRef(BaseModel):
-    code: str
-    name: str
+    code: str = Field(max_length=16)
+    name: str = Field(max_length=255)
 
 
 class DiagnosisOut(BaseModel):
@@ -69,16 +69,16 @@ class DrugOut(BaseModel):
 
 
 class RequestItemIn(BaseModel):
-    drug_id: str | None = None
-    drug_name: str
-    generic: str | None = None
-    dosage: str | None = None
-    quantity: int | None = Field(default=None, ge=1)
-    duration_days: int | None = None
+    drug_id: str | None = Field(default=None, max_length=64)
+    drug_name: str = Field(max_length=255)
+    generic: str | None = Field(default=None, max_length=255)
+    dosage: str | None = Field(default=None, max_length=128)
+    quantity: int | None = Field(default=None, ge=1, le=9999)
+    duration_days: int | None = Field(default=None, ge=1, le=3650)
     # Widened — drugs can be tagged hormonal/cancer/autoimmune/fertility/
     # telemedicine by the tariff; routing handles the split, so just accept
     # a free-form string here.
-    classification_hint: str | None = None
+    classification_hint: str | None = Field(default=None, max_length=64)
     unit_price: float | None = None
 
     @field_validator("drug_id", mode="before")
@@ -97,29 +97,29 @@ class RequestItemIn(BaseModel):
 
 
 class DeliveryIn(BaseModel):
-    formatted: str
+    formatted: str = Field(max_length=512)
     lat: float | None = None
     lng: float | None = None
-    place_id: str | None = None
+    place_id: str | None = Field(default=None, max_length=512)
 
 
 class MedicationRequestIn(BaseModel):
-    enrollee_id: str
-    diagnoses: list[DiagnosisRef]
-    items: list[RequestItemIn]
+    enrollee_id: str = Field(max_length=64)
+    diagnoses: list[DiagnosisRef] = Field(max_length=20)
+    items: list[RequestItemIn] = Field(max_length=50)
     delivery: DeliveryIn | None = None
     # Optional overrides from the provider form — used verbatim when
     # Prognosis returns no phone/email/state for the member.
-    member_phone: str | None = None
+    member_phone: str | None = Field(default=None, max_length=32)
     member_email: str | None = None
-    member_state: str | None = None
-    alt_phone: str | None = None
+    member_state: str | None = Field(default=None, max_length=64)
+    alt_phone: str | None = Field(default=None, max_length=32)
     urgency: Literal["routine", "urgent", "stat"] = "routine"
-    treating_doctor: str | None = None
+    treating_doctor: str | None = Field(default=None, max_length=255)
     # Provider-chosen partner pharmacy (WellaHealth pharmacyCode). If blank,
     # WellaHealth auto-assigns. Applies only when the request is routed there.
-    pharmacy_code: str | None = None
-    notes: str | None = None
+    pharmacy_code: str | None = Field(default=None, max_length=64)
+    notes: str | None = Field(default=None, max_length=2000)
 
     @field_validator("enrollee_id", mode="before")
     @classmethod
