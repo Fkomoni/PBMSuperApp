@@ -255,9 +255,15 @@ async def submit(
         db.commit()
         db.refresh(req)
 
-    # ── Leadway PBM WhatsApp bot (chronic, mixed, acute Lagos weekday,
-    #    special cohorts). Routes to WhatsApp #1 or #2 per the matrix. ──
-    if route.get("channel") in ("leadway_pbm_whatsapp_1", "leadway_pbm_whatsapp_2"):
+    # ── Leadway PBM WhatsApp bot (acute business-hours, chronic, mixed,
+    #    special cohorts). One of three channels fires depending on the
+    #    routing bucket the order fell into. ──
+    _WA_CHANNEL_LABELS = {
+        "leadway_pbm_whatsapp_acute_hours": "Acute hours",
+        "leadway_pbm_whatsapp_1":           "Lagos non-acute",
+        "leadway_pbm_whatsapp_2":           "Outside-Lagos non-acute",
+    }
+    if route.get("channel") in _WA_CHANNEL_LABELS:
         # Enrich with the provider's facility so the message can show it
         provider_row = db.get(Provider, provider["sub"])
         serialized = _serialize(req)
@@ -276,7 +282,7 @@ async def submit(
                 logger.info("WhatsApp delivered for %s → wamid=%s", req.id, wamid)
             db.add(TrackingEvent(
                 request_id=req.id,
-                label=f"Sent to Leadway PBM WhatsApp ({'#1' if route.get('channel') == 'leadway_pbm_whatsapp_1' else '#2'})",
+                label=f"Sent to Leadway PBM WhatsApp ({_WA_CHANNEL_LABELS[route.get('channel')]})",
                 kind="done",
                 icon="message-circle",
                 at=datetime.now(timezone.utc),

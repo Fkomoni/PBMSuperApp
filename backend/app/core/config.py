@@ -84,6 +84,19 @@ class Settings(BaseSettings):
     # API key + header name (default X-API-Key, which is the most common).
     whatsapp_api_key: str | None = None
     whatsapp_api_key_header: str = "X-API-Key"
+
+    # Three-number routing scheme:
+    #   1. Acute · Lagos · business-hours     → acute-hours Leadway WhatsApp
+    #   2. Non-acute (chronic / mixed / special) · Lagos     → Lagos PBM WhatsApp
+    #   3. Non-acute (chronic / mixed / special) · outside Lagos  → outside PBM WhatsApp
+    # Defaults are the Leadway-supplied production numbers; override via env
+    # vars per deployment if any of them rotate.
+    whatsapp_number_acute_hours_lagos: str = "+2347011706864"
+    whatsapp_number_lagos_non_acute: str = "+234708340602"
+    whatsapp_number_outside_non_acute: str = "+234818123382841"
+
+    # Legacy aliases retained so older env-var settings keep working — each
+    # falls through to the matching new slot above when the new var is empty.
     whatsapp_number_acute_lagos: str = ""
     whatsapp_number_chronic: str = ""
 

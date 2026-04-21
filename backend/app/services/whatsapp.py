@@ -50,11 +50,34 @@ def _configured() -> bool:
 
 
 def resolve_number(channel: str | None) -> str | None:
-    """Map an internal routing channel to a WhatsApp phone number env var."""
+    """Map an internal routing channel to the configured WhatsApp number.
+
+    Three active buckets (see app.core.routing):
+      leadway_pbm_whatsapp_acute_hours  → Acute (Mon-Fri 08-17 Lagos)
+      leadway_pbm_whatsapp_1            → Non-acute in Lagos
+      leadway_pbm_whatsapp_2            → Non-acute outside Lagos
+
+    Each new setting has a legacy alias that kicks in if the new env var
+    hasn't been set yet, so an older deployment keeps working unchanged.
+    """
+    if channel == "leadway_pbm_whatsapp_acute_hours":
+        return (
+            settings.whatsapp_number_acute_hours_lagos
+            or settings.whatsapp_number_acute_lagos
+            or None
+        )
     if channel == "leadway_pbm_whatsapp_1":
-        return settings.whatsapp_number_acute_lagos or None
+        return (
+            settings.whatsapp_number_lagos_non_acute
+            or settings.whatsapp_number_acute_lagos  # legacy alias
+            or None
+        )
     if channel == "leadway_pbm_whatsapp_2":
-        return settings.whatsapp_number_chronic or None
+        return (
+            settings.whatsapp_number_outside_non_acute
+            or settings.whatsapp_number_chronic  # legacy alias
+            or None
+        )
     return None
 
 
@@ -164,7 +187,8 @@ async def dispatch_medication_request(request: dict, *, channel: str | None = No
     if not to:
         raise WhatsAppError(
             f"No WhatsApp number configured for channel '{chan}'. "
-            "Set WHATSAPP_NUMBER_ACUTE_LAGOS and WHATSAPP_NUMBER_CHRONIC."
+            "Set WHATSAPP_NUMBER_ACUTE_HOURS_LAGOS, WHATSAPP_NUMBER_LAGOS_NON_ACUTE, "
+            "and WHATSAPP_NUMBER_OUTSIDE_NON_ACUTE."
         )
     message = format_medication_request(request)
     return await send_message(to, message)

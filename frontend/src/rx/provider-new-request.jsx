@@ -640,6 +640,7 @@ function AddressFieldInline({ value, onChange, placeholder }) {
 
 // ─── Routing preview (mirrors backend rules) ────────────────────────
 const ACUTE_PILOT_LGAS = new Set(["ibeju-lekki", "epe"]);
+const SPECIAL_COHORT_KINDS = new Set(["hormonal", "cancer", "autoimmune", "fertility", "supplements", "supplement"]);
 
 function _normLgaKey(s) {
   if (!s) return "";
@@ -649,24 +650,44 @@ function _normLgaKey(s) {
     .replace(/^-+|-+$/g, "");
 }
 
-function previewRoute({ classifications, state, lga }) {
+// Leadway PBM operating window — Mon-Fri 08:00-16:59 Africa/Lagos (UTC+1,
+// no DST). Computed from the user's local clock by shifting into Lagos'
+// wall time so the preview matches the server's authoritative decision.
+function _inLagosBusinessHours(now = new Date()) {
+  const utcMs = now.getTime() + now.getTimezoneOffset() * 60 * 1000;
+  const lagos = new Date(utcMs + 60 * 60 * 1000); // +1h
+  const dow = lagos.getUTCDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+  const hour = lagos.getUTCHours();
+  return dow >= 1 && dow <= 5 && hour >= 8 && hour < 17;
+}
+
+function previewRoute({ classifications, state, lga, now }) {
   const isLagos = (state || "").toLowerCase() === "lagos";
-  const isPilotLga = ACUTE_PILOT_LGAS.has(_normLgaKey(lga));
+  const lgaKey = _normLgaKey(lga);
+  const isPilotLga = ACUTE_PILOT_LGAS.has(lgaKey);
 
   const hasChronic = classifications.includes("chronic");
   const hasAcute = classifications.includes("acute");
-  const hasSpecial = classifications.includes("special");
+  const hasSpecial = classifications.some(c => SPECIAL_COHORT_KINDS.has(c)) || classifications.includes("special");
 
-  if (hasSpecial) return { channel: isLagos ? "Leadway PBM · WhatsApp #1" : "Leadway PBM · WhatsApp #2", kind: "special" };
-  if (hasChronic && hasAcute) return { channel: "Leadway PBM · WhatsApp #1 (mixed)", kind: "mixed" };
-  if (hasChronic) return { channel: "Leadway PBM · WhatsApp #2", kind: "chronic" };
+  // Non-acute family collapses into one Lagos vs outside-Lagos decision
+  if (hasSpecial || (hasChronic && hasAcute) || hasChronic) {
+    return isLagos
+      ? { channel: "Leadway PBM · WhatsApp (Lagos non-acute)", kind: "non-acute-lagos" }
+      : { channel: "Leadway PBM · WhatsApp (Outside Lagos non-acute)", kind: "non-acute-outside" };
+  }
+
   if (hasAcute) {
     if (isPilotLga) {
-      const pilotName = _normLgaKey(lga) === "ibeju-lekki" ? "Ibeju-Lekki" : "Epe";
+      const pilotName = lgaKey === "ibeju-lekki" ? "Ibeju-Lekki" : "Epe";
       return { channel: `WellaHealth partner pharmacy (${pilotName} pilot)`, kind: "acute-pilot" };
     }
-    return { channel: "WellaHealth partner pharmacy", kind: "acute" };
+    if (_inLagosBusinessHours(now)) {
+      return { channel: "Leadway PBM · WhatsApp (Acute hours)", kind: "acute-business-hours" };
+    }
+    return { channel: "WellaHealth partner pharmacy (after-hours)", kind: "acute-after-hours" };
   }
+
   return { channel: "—", kind: "none" };
 }
 
@@ -962,11 +983,17 @@ function ProviderNewRequest({ session, initialMember, onSubmitted, onCancel }) {
         {(() => {
           const hasState = !!(state || address?.state);
           if (!hasState) return null;
+          // Routes that Leadway PBM fulfils directly — no partner pharmacy
+          // picker needed. Covers the new three-bucket scheme: any non-acute
+          // (chronic / mixed / special) anywhere, plus acute inside business
+          // hours (which also goes through Leadway).
+          const pbmKinds = new Set([
+            "non-acute-lagos", "non-acute-outside",
+            "acute-business-hours",
+          ]);
+          const toPBM = pbmKinds.has(routing.kind);
           const stateL = (state || address?.state || "").toLowerCase();
-          const toPBMWhatsApp = routing.kind === "chronic" || routing.kind === "mixed" || routing.kind === "special";
-          // Lagos + Leadway PBM WhatsApp → Leadway's in-house pharmacy
-          // fulfils directly, so skip the partner-pharmacy picker.
-          if (toPBMWhatsApp && stateL === "lagos") {
+          if (toPBM && stateL === "lagos") {
             return (
               <div style={{
                 marginTop: 14,
@@ -983,7 +1010,7 @@ function ProviderNewRequest({ session, initialMember, onSubmitted, onCancel }) {
               </div>
             );
           }
-          const hint = toPBMWhatsApp
+          const hint = toPBM
             ? "(optional — Leadway PBM will route to the nearest partner pharmacy)"
             : "(optional — WellaHealth auto-assigns if blank)";
           return (
