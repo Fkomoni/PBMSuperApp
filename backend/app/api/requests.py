@@ -293,7 +293,7 @@ async def submit(
             )
             db.add(TrackingEvent(
                 request_id=req.id,
-                label=f"Member notified by email ({req.enrollee_email})",
+                label="Member notified by email",
                 kind="done",
                 icon="mail",
                 at=datetime.now(timezone.utc),

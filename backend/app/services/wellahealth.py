@@ -12,6 +12,10 @@ import re
 from datetime import datetime
 from typing import Any
 
+# Allowlist for geographic name parameters inserted into URL paths.
+# Rejects path-traversal chars (/, ..), newlines, and other non-name chars.
+_SAFE_GEO = re.compile(r"^[A-Za-z\s\-]{1,64}$")
+
 import httpx
 
 from app.core.config import settings
@@ -386,18 +390,32 @@ dispatch_fulfilment = create_fulfilment
 # ==================================================================
 # Pharmacy lookups
 # ==================================================================
+def _safe_geo(value: str, label: str) -> str:
+    """Validate a geographic name before interpolating it into a URL path.
+    Rejects anything containing path-traversal sequences, newlines, or
+    characters that are not part of a Nigerian state or LGA name.
+    """
+    v = (value or "").strip()
+    if not v or not _SAFE_GEO.match(v):
+        raise WellaHealthError(
+            f"Invalid {label} value {v!r}. Expected letters, spaces, or hyphens only."
+        )
+    return v
+
+
 async def pharmacies_in_state(state: str, page_index: int = 1, page_size: int = 200) -> Any:
-    return await _request("GET", PHARMACY_STATE_PATH.format(stateName=state),
+    return await _request("GET", PHARMACY_STATE_PATH.format(stateName=_safe_geo(state, "state")),
                           params={"pageIndex": page_index, "pageSize": page_size})
 
 
 async def pharmacies_in_lga(state: str, lga: str, page_index: int = 1, page_size: int = 200) -> Any:
-    return await _request("GET", PHARMACY_LGA_PATH.format(stateName=state, lgaName=lga),
-                          params={"pageIndex": page_index, "pageSize": page_size})
+    return await _request("GET", PHARMACY_LGA_PATH.format(
+        stateName=_safe_geo(state, "state"), lgaName=_safe_geo(lga, "lga")),
+        params={"pageIndex": page_index, "pageSize": page_size})
 
 
 async def lgas_in_state(state: str) -> Any:
-    return await _request("GET", PHARMACY_LGA_LIST_PATH.format(stateName=state))
+    return await _request("GET", PHARMACY_LGA_LIST_PATH.format(stateName=_safe_geo(state, "state")))
 
 
 # ==================================================================

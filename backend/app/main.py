@@ -39,7 +39,16 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title=settings.app_name, lifespan=lifespan)
+    _prod = settings.environment == "production"
+    app = FastAPI(
+        title=settings.app_name,
+        lifespan=lifespan,
+        # Disable interactive API docs in production — they expose the full
+        # endpoint surface and allow unauthenticated "Try it out" calls.
+        docs_url=None if _prod else "/docs",
+        redoc_url=None if _prod else "/redoc",
+        openapi_url=None if _prod else "/openapi.json",
+    )
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
@@ -78,10 +87,16 @@ def create_app() -> FastAPI:
     app.include_router(pharmacies.router, prefix=settings.api_prefix)
     app.include_router(requests.router, prefix=settings.api_prefix)
     app.include_router(admin.router, prefix=settings.api_prefix)
-    app.include_router(debug.router, prefix=settings.api_prefix)
+    # Debug router is excluded entirely in production — even admin-gated
+    # diagnostic endpoints have no place on a live service.
+    if not _prod:
+        app.include_router(debug.router, prefix=settings.api_prefix)
 
     @app.get("/")
     async def root():
+        # Return minimal information in production to reduce reconnaissance surface.
+        if _prod:
+            return {"status": "ok"}
         return {"app": settings.app_name, "env": settings.environment, "prefix": settings.api_prefix}
 
     @app.get("/health")

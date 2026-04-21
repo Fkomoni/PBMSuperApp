@@ -10,9 +10,9 @@ Endpoints:
 from __future__ import annotations
 
 import asyncio
-import time
 from typing import Any
 
+from cachetools import TTLCache
 from fastapi import APIRouter, Depends, Query
 
 from app.core.security import current_provider
@@ -21,10 +21,11 @@ from app.services.wellahealth import WellaHealthError
 
 router = APIRouter(prefix="/pharmacies", tags=["pharmacies"], dependencies=[Depends(current_provider)])
 
-# Cache { (state, lga or "*") : (fetched_at_epoch, [pharmacies]) }
-_PCACHE: dict[tuple[str, str], tuple[float, list[dict]]] = {}
-_LGA_CACHE: dict[str, tuple[float, list[str]]] = {}
 _TTL_SECONDS = 3600  # refresh hourly
+# Bounded caches — maxsize prevents memory exhaustion from enumeration attacks.
+# 64 state entries × up to 200 pharmacies each ≈ ~3 MB worst case.
+_PCACHE: TTLCache = TTLCache(maxsize=128, ttl=_TTL_SECONDS)
+_LGA_CACHE: TTLCache = TTLCache(maxsize=64, ttl=_TTL_SECONDS)
 
 
 def _normalize(p: dict) -> dict:
@@ -98,26 +99,22 @@ async def list_pharmacies(
     limit: int = Query(default=500, ge=1, le=1000),
 ):
     key = (state.strip().lower(), (lga or "*").strip().lower())
-    now = time.time()
-    cached = _PCACHE.get(key)
-    if cached and (now - cached[0] < _TTL_SECONDS):
-        items = cached[1]
-    else:
+    items = _PCACHE.get(key)
+    if items is None:
         try:
             items = await _fetch_in_state(state.strip(), (lga or "").strip() or None)
         except WellaHealthError as e:
             return {"ok": False, "error": str(e), "items": []}
-        _PCACHE[key] = (now, items)
+        _PCACHE[key] = items
     return {"ok": True, "state": state, "lga": lga, "count": len(items), "items": items[:limit]}
 
 
 @router.get("/lgas")
 async def list_lgas(state: str = Query(...)):
     key = state.strip().lower()
-    now = time.time()
-    cached = _LGA_CACHE.get(key)
-    if cached and (now - cached[0] < _TTL_SECONDS):
-        return {"ok": True, "state": state, "lgas": cached[1]}
+    cached_lgas = _LGA_CACHE.get(key)
+    if cached_lgas is not None:
+        return {"ok": True, "state": state, "lgas": cached_lgas}
     try:
         raw = await wellahealth.lgas_in_state(state.strip())
     except WellaHealthError as e:
@@ -138,5 +135,5 @@ async def list_lgas(state: str = Query(...)):
                     lgas_candidate = inner
                     break
     lgas = sorted({str(x) for x in (lgas_candidate or []) if x})
-    _LGA_CACHE[key] = (now, lgas)
+    _LGA_CACHE[key] = lgas
     return {"ok": True, "state": state, "lgas": lgas}

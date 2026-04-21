@@ -89,5 +89,7 @@ const api = {
   },
 };
 
+// Expose only the API object needed by other script modules.
+// providerAuth helpers (getToken/setToken) are intentionally NOT placed on
+// window — doing so would let any injected script steal or swap the JWT.
 window.providerApi = api;
-window.providerAuth = { getToken, setToken, getSession, setSession };

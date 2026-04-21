@@ -87,12 +87,13 @@ async def login(request: Request, body: LoginIn, db: Session = Depends(get_db)):
        can take the fast local path.
     """
     email = body.email.lower()
-    logger.info("login attempt: %s", email)
+    client_ip = request.client.host if request.client else "unknown"
+    logger.info("SECURITY login_attempt email=%s ip=%s", email, client_ip)
 
     # 1. Local DB (always cheap; never depends on Prognosis)
     p = db.scalar(select(Provider).where(Provider.email == email))
     if p and p.is_active and verify_password(body.password, p.password_hash):
-        logger.info("login OK via local DB: %s (role=%s)", email, p.role)
+        logger.info("SECURITY login_success email=%s ip=%s source=local role=%s", email, client_ip, p.role)
         return _mint(p)
 
     # 2. Prognosis (real providers)
@@ -100,13 +101,14 @@ async def login(request: Request, body: LoginIn, db: Session = Depends(get_db)):
         try:
             pp = await prognosis.provider_login(email, body.password)
             p = _upsert_from_prognosis(db, pp)
-            logger.info("login OK via Prognosis: %s", email)
+            logger.info("SECURITY login_success email=%s ip=%s source=prognosis", email, client_ip)
             return _mint(p)
         except PrognosisAuthError as e:
-            logger.warning("login Prognosis path failed for %s: %s", email, e)
+            logger.warning("SECURITY login_failed email=%s ip=%s reason=prognosis_auth err=%s", email, client_ip, e)
             # Fall through to a uniform 401 so we don't leak whether
             # Prognosis was down vs bad creds to unauthed callers.
 
+    logger.warning("SECURITY login_failed email=%s ip=%s reason=bad_credentials", email, client_ip)
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
 
 

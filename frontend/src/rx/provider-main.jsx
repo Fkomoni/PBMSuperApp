@@ -2,8 +2,8 @@
 // hub → login → app(shell + page)
 
 function ProviderApp() {
-  const [stage, setStage] = rxS(() => providerAuth.getToken() && providerAuth.getSession() ? "app" : "hub");
-  const [session, setSession] = rxS(() => providerAuth.getSession());
+  const [stage, setStage] = rxS(() => providerApi.getToken() && providerApi.getSession() ? "app" : "hub");
+  const [session, setSession] = rxS(() => providerApi.getSession());
   const [page, setPage] = rxS(() => localStorage.getItem("rx.provider.page") || "new");
   const [focus, setFocus] = rxS(null);
   const [startMember, setStartMember] = rxS(null);
@@ -28,7 +28,7 @@ function ProviderApp() {
       : { email: handoffEmail, parent_shared_secret: handoffSecret };
 
     providerApi.exchange(body).then(data => {
-      const provider = (data && data.provider) || providerAuth.getSession() || {};
+      const provider = (data && data.provider) || providerApi.getSession() || {};
       setSession({ role: "provider", ...provider });
       setStage("app");
       // Scrub the credentials from the address bar.

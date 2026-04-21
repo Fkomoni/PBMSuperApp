@@ -1,8 +1,8 @@
 from datetime import datetime, timedelta, timezone
 
+import jwt as pyjwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -19,13 +19,13 @@ def create_access_token(subject: str, extra: dict | None = None) -> str:
         "exp": int((now + timedelta(hours=settings.jwt_ttl_hours)).timestamp()),
         **(extra or {}),
     }
-    return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+    return pyjwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
 def decode_token(token: str) -> dict:
     try:
-        return jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
-    except JWTError as e:
+        return pyjwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+    except pyjwt.PyJWTError as e:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid token: {e}")
 
 

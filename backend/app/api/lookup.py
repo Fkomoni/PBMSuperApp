@@ -59,7 +59,9 @@ async def diagnoses(q: str = Query(default="", min_length=0), limit: int = Query
 
 
 @router.get("/address-autocomplete")
-async def address_autocomplete(input: str = Query(...)):
+async def address_autocomplete(
+    input: str = Query(..., min_length=3, max_length=256),
+):
     """Google Places autocomplete (Nigeria-scoped). Falls back to inline stubs
     when GOOGLE_MAPS_API_KEY is unset so the wizard works in dev.
     """
@@ -67,6 +69,6 @@ async def address_autocomplete(input: str = Query(...)):
 
 
 @router.get("/address-details")
-async def address_details(place_id: str = Query(...)):
+async def address_details(place_id: str = Query(..., max_length=512)):
     """Google Place details + geometry. Same fallback behavior as autocomplete."""
     return await places.details(place_id)

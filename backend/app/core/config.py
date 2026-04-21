@@ -1,4 +1,7 @@
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_WEAK_JWT_SECRET = "change-me-in-prod"
 
 
 class Settings(BaseSettings):
@@ -9,7 +12,7 @@ class Settings(BaseSettings):
     environment: str = "local"
 
     # ── JWT (portal sessions) ──────────────────────────────────────────
-    jwt_secret: str = "change-me-in-prod"
+    jwt_secret: str = _WEAK_JWT_SECRET
     jwt_algorithm: str = "HS256"
     jwt_ttl_hours: int = 8
 
@@ -70,6 +73,20 @@ class Settings(BaseSettings):
 
     # ── CORS ───────────────────────────────────────────────────────────
     cors_origins: str = "*"
+
+    @model_validator(mode="after")
+    def _security_checks(self) -> "Settings":
+        if self.environment != "local":
+            if self.jwt_secret == _WEAK_JWT_SECRET:
+                raise ValueError(
+                    "JWT_SECRET must be changed from the default in non-local environments. "
+                    "Set a strong random value (32+ characters) in your environment variables."
+                )
+            if self.embed_shared_secret and len(self.embed_shared_secret) < 32:
+                raise ValueError(
+                    "EMBED_SHARED_SECRET must be at least 32 characters to be secure."
+                )
+        return self
 
 
 settings = Settings()

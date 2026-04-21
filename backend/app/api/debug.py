@@ -289,11 +289,15 @@ async def whatsapp_config():
 
 
 
+import re as _re
+_SAFE_PATH = _re.compile(r"^/[A-Za-z0-9/_-]{0,63}$")
+
+
 @router.get("/whatsapp/probe")
 async def whatsapp_probe(
     path: str = Query(default=None, description="Path to POST to; defaults to WHATSAPP_SEND_PATH"),
     to: str = Query(..., description="Recipient phone number in E.164 format, e.g. +2348XXXXXXXXX"),
-    message: str = Query(default="RxHub probe - ignore"),
+    message: str = Query(default="RxHub probe - ignore", max_length=500),
 ):
     """POST a one-line test message to a path on the bot and return what
     comes back. Uses the configured field names (WHATSAPP_FIELD_PHONE /
@@ -304,6 +308,7 @@ async def whatsapp_probe(
         /api/v1/_debug/whatsapp/probe?path=/messages&to=+234...
     """
     import httpx
+    from fastapi import HTTPException as _HTTPException
     from app.services import whatsapp as wa
 
     if not settings.whatsapp_bot_url:
@@ -312,6 +317,8 @@ async def whatsapp_probe(
     effective_path = path or settings.whatsapp_send_path or "/send-message"
     if not effective_path.startswith("/"):
         effective_path = "/" + effective_path
+    if not _SAFE_PATH.match(effective_path):
+        raise _HTTPException(status_code=400, detail="Invalid path: only letters, digits, /, _, - allowed")
     url = settings.whatsapp_bot_url.rstrip("/") + effective_path
     payload = wa._build_payload(to, message)  # noqa: SLF001
     headers = {"Accept": "application/json", "Content-Type": "application/json"}

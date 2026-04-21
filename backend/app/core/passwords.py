@@ -1,15 +1,15 @@
-"""Thin wrapper over passlib so the rest of the app doesn't import it directly."""
-from passlib.context import CryptContext
-
-_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
+"""Password hashing using bcrypt directly (passlib removed — unmaintained since 2020).
+Existing $2b$ hashes in the database are fully compatible.
+"""
+import bcrypt
 
 
 def hash_password(plain: str) -> str:
-    return _ctx.hash(plain)
+    return bcrypt.hashpw(plain.encode(), bcrypt.gensalt(rounds=12)).decode()
 
 
 def verify_password(plain: str, hashed: str) -> bool:
     try:
-        return _ctx.verify(plain, hashed)
+        return bcrypt.checkpw(plain.encode(), hashed.encode())
     except Exception:
         return False

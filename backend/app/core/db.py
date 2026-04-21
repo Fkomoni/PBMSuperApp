@@ -101,7 +101,10 @@ def _run_migrations() -> None:
     doesn't back-fill on existing tables. Keep each block safe to run every
     boot; prefer ALTER TABLE IF NOT EXISTS / try-except patterns.
     """
+    import re
     from sqlalchemy import inspect, text
+
+    _SAFE_COL = re.compile(r"^[a-z_]{1,64}$")
 
     insp = inspect(engine)
 
@@ -133,5 +136,7 @@ def _run_migrations() -> None:
         ]
         with engine.begin() as conn:
             for col, ddl in to_add:
+                if not _SAFE_COL.match(col):
+                    raise RuntimeError(f"Migration: unsafe column name {col!r}")
                 if col not in existing:
                     conn.execute(text(f"ALTER TABLE medication_requests ADD COLUMN {col} {ddl}"))

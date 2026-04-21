@@ -213,12 +213,13 @@ async def _bearer_request(method: str, path: str, *, params: dict | None = None,
             data = {"raw": resp.text}
         # Scrub oversized string fields (e.g. base64 picture) for the log
         # snippet only — the real `data` stays intact.
-        if isinstance(data, dict):
-            loggable = {k: (f"<{len(v)} chars>" if isinstance(v, str) and len(v) > 500 else v)
-                         for k, v in data.items()}
-        else:
-            loggable = data
-        logger.info("Prognosis %s %s → HTTP %s · body=%s", method, path, resp.status_code, str(loggable)[:3000])
+        # Log only structural metadata — never field values, which may contain
+        # member PHI (name, DOB, phone, email, diagnoses, medications).
+        log_meta = {
+            "status": resp.status_code,
+            "keys": sorted(data.keys()) if isinstance(data, dict) else type(data).__name__,
+        }
+        logger.info("Prognosis %s %s → %s", method, path, log_meta)
         return resp.status_code, data
 
     raise PrognosisAuthError("Prognosis returned 401 twice in a row — check PROGNOSIS_USERNAME/PASSWORD")
@@ -280,8 +281,7 @@ async def provider_login(email: str, password: str) -> PrognosisProvider:
     status_code, data = await _bearer_request(
         "POST", LOGIN_PATH, body=_build_login_payload(email, password)
     )
-    snippet = str(data)[:400]
-    logger.info("ProviderLogIn %s → HTTP %s · body=%s", email, status_code, snippet)
+    logger.info("ProviderLogIn %s → HTTP %s", email, status_code)
 
     if _is_credential_reject(status_code, data):
         msg = (isinstance(data, dict) and (data.get("message") or data.get("Message"))) or "Invalid email or password"

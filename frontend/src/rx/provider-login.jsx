@@ -49,7 +49,7 @@ function ProviderLogin({ onBack, onSignedIn }) {
     setErr(null); setLoading(true);
     try {
       const data = await providerApi.login({ email: email.trim(), password });
-      const provider = (data && data.provider) || providerAuth.getSession() || { email: email.trim() };
+      const provider = (data && data.provider) || providerApi.getSession() || { email: email.trim() };
       onSignedIn({ role: "provider", ...provider });
     } catch (e) {
       setErr(e.message || "Sign-in failed. Please try again.");
