@@ -147,7 +147,8 @@ async def send_message(to: str, message: str) -> dict:
         data: Any = resp.json()
     except Exception:
         data = {"raw": resp.text}
-    logger.info("WhatsApp ← HTTP %s · body=%s", resp.status_code, str(data)[:500])
+    logger.info("WhatsApp ← HTTP %s", resp.status_code)
+    logger.debug("WhatsApp response body: %s", str(data)[:500])
     if resp.status_code >= 400:
         raise WhatsAppError(f"Bot error {resp.status_code}: {str(data)[:200]}")
     return data if isinstance(data, dict) else {"raw": data}

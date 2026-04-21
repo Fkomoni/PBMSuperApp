@@ -58,13 +58,15 @@ async def enrollee(request: Request, enrollee_id: str = Query(..., alias="enroll
 
 
 @router.get("/diagnoses")
-async def diagnoses(q: str = Query(default="", min_length=0), limit: int = Query(default=20, ge=1, le=100)):
+@limiter.limit("120/minute")
+async def diagnoses(request: Request, q: str = Query(default="", min_length=0, max_length=100), limit: int = Query(default=20, ge=1, le=100)):
     """Standard ICD-10 search backed by the embedded catalog in app.services.icd10."""
     return icd10.search(q, limit=limit)
 
 
 @router.get("/address-autocomplete")
-async def address_autocomplete(input: str = Query(..., max_length=200)):
+@limiter.limit("60/minute")
+async def address_autocomplete(request: Request, input: str = Query(..., max_length=200)):
     """Google Places autocomplete (Nigeria-scoped). Falls back to inline stubs
     when GOOGLE_MAPS_API_KEY is unset so the wizard works in dev.
     """
@@ -72,6 +74,7 @@ async def address_autocomplete(input: str = Query(..., max_length=200)):
 
 
 @router.get("/address-details")
-async def address_details(place_id: str = Query(..., max_length=500)):
+@limiter.limit("60/minute")
+async def address_details(request: Request, place_id: str = Query(..., max_length=500)):
     """Google Place details + geometry. Same fallback behavior as autocomplete."""
     return await places.details(place_id)

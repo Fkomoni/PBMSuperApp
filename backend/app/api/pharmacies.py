@@ -13,13 +13,16 @@ import asyncio
 import time
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 
+from app.core.limiter import limiter
 from app.core.security import current_provider
 from app.services import wellahealth
 from app.services.wellahealth import WellaHealthError
 
 router = APIRouter(prefix="/pharmacies", tags=["pharmacies"], dependencies=[Depends(current_provider)])
+
+_CACHE_MAX_ENTRIES = 500  # evict oldest when exceeded
 
 # Cache { (state, lga or "*") : (fetched_at_epoch, [pharmacies]) }
 _PCACHE: dict[tuple[str, str], tuple[float, list[dict]]] = {}
@@ -92,9 +95,11 @@ async def _fetch_in_state(state: str, lga: str | None) -> list[dict]:
 
 
 @router.get("")
+@limiter.limit("60/minute")
 async def list_pharmacies(
-    state: str = Query(..., description="Nigerian state, e.g. Lagos"),
-    lga: str | None = Query(default=None, description="Optional LGA — narrows list"),
+    request: Request,
+    state: str = Query(..., max_length=64, description="Nigerian state, e.g. Lagos"),
+    lga: str | None = Query(default=None, max_length=64, description="Optional LGA — narrows list"),
     limit: int = Query(default=500, ge=1, le=1000),
 ):
     key = (state.strip().lower(), (lga or "*").strip().lower())
@@ -107,12 +112,17 @@ async def list_pharmacies(
             items = await _fetch_in_state(state.strip(), (lga or "").strip() or None)
         except WellaHealthError as e:
             return {"ok": False, "error": str(e), "items": []}
+        # Evict oldest entries when cache grows too large.
+        if len(_PCACHE) >= _CACHE_MAX_ENTRIES:
+            oldest = min(_PCACHE, key=lambda k: _PCACHE[k][0])
+            del _PCACHE[oldest]
         _PCACHE[key] = (now, items)
     return {"ok": True, "state": state, "lga": lga, "count": len(items), "items": items[:limit]}
 
 
 @router.get("/lgas")
-async def list_lgas(state: str = Query(...)):
+@limiter.limit("60/minute")
+async def list_lgas(request: Request, state: str = Query(..., max_length=64)):
     key = state.strip().lower()
     now = time.time()
     cached = _LGA_CACHE.get(key)
@@ -138,5 +148,8 @@ async def list_lgas(state: str = Query(...)):
                     lgas_candidate = inner
                     break
     lgas = sorted({str(x) for x in (lgas_candidate or []) if x})
+    if len(_LGA_CACHE) >= _CACHE_MAX_ENTRIES:
+        oldest = min(_LGA_CACHE, key=lambda k: _LGA_CACHE[k][0])
+        del _LGA_CACHE[oldest]
     _LGA_CACHE[key] = (now, lgas)
     return {"ok": True, "state": state, "lgas": lgas}

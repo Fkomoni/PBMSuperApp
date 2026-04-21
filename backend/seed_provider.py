@@ -1,11 +1,15 @@
 """CLI helper to create (or reset password of) a provider account.
 
 Usage (from backend/):
-    python seed_provider.py doctor@clinic.com "Dr Jane Doe" 's3cretPw!' [--facility "Clinic Name"]
+    python seed_provider.py doctor@clinic.com "Dr Jane Doe" [--facility "Clinic Name"]
+
+Password is read interactively from stdin (hidden input) to prevent it
+from appearing in shell history or `ps aux` output.
 """
 from __future__ import annotations
 
 import argparse
+import getpass
 
 from sqlalchemy import select
 
@@ -18,7 +22,6 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Seed/reset a provider account")
     parser.add_argument("email")
     parser.add_argument("name")
-    parser.add_argument("password")
     parser.add_argument("--role", choices=["provider", "admin"], default="provider",
                         help="Role (default: provider). Use 'admin' to create an admin account.")
     parser.add_argument("--facility", default=None)
@@ -26,13 +29,22 @@ def main() -> None:
     parser.add_argument("--phone", default=None)
     args = parser.parse_args()
 
+    password = getpass.getpass("Password: ")
+    confirm  = getpass.getpass("Confirm password: ")
+    if password != confirm:
+        print("Passwords do not match — aborting.")
+        raise SystemExit(1)
+    if len(password) < 8:
+        print("Password must be at least 8 characters — aborting.")
+        raise SystemExit(1)
+
     init_db()
     with SessionLocal() as db:
         email = args.email.lower().strip()
         p = db.scalar(select(Provider).where(Provider.email == email))
         if p:
             p.name = args.name
-            p.password_hash = hash_password(args.password)
+            p.password_hash = hash_password(password)
             p.role = args.role
             if args.facility:
                 p.facility = args.facility
@@ -45,7 +57,7 @@ def main() -> None:
             p = Provider(
                 email=email,
                 name=args.name,
-                password_hash=hash_password(args.password),
+                password_hash=hash_password(password),
                 role=args.role,
                 facility=args.facility,
                 prognosis_id=args.prognosis_id,

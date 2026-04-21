@@ -250,7 +250,6 @@ async def refresh_external_status(
         "external_tracking_code": req.external_tracking_code,
         "external_pharmacy_name": req.external_pharmacy_name,
         "external_synced_at": req.external_synced_at,
-        "raw": row,
     }
 
 

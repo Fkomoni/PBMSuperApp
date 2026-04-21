@@ -1,6 +1,8 @@
 import hmac
 import logging
-from datetime import datetime, timezone
+from collections import defaultdict
+from datetime import datetime, timedelta, timezone
+from threading import Lock
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
@@ -21,6 +23,34 @@ logger = logging.getLogger("rxhub.auth")
 audit = logging.getLogger("rxhub.audit")
 
 router = APIRouter(tags=["auth"])
+
+# ── Per-account login lockout ─────────────────────────────────────────────────
+# Tracks consecutive failures per lowercase email. Locked accounts return a
+# generic 401 (same message as bad password) to prevent user enumeration.
+# In-memory — resets on restart. Acceptable for single-instance deploys.
+_LOCKOUT_THRESHOLD = 10       # consecutive failures before lockout
+_LOCKOUT_DURATION = timedelta(minutes=15)
+_login_failures: dict[str, list[datetime]] = defaultdict(list)
+_login_lock = Lock()
+
+
+def _is_locked(email: str) -> bool:
+    now = datetime.now(timezone.utc)
+    cutoff = now - _LOCKOUT_DURATION
+    with _login_lock:
+        recent = [t for t in _login_failures[email] if t > cutoff]
+        _login_failures[email] = recent
+        return len(recent) >= _LOCKOUT_THRESHOLD
+
+
+def _record_failure(email: str) -> None:
+    with _login_lock:
+        _login_failures[email].append(datetime.now(timezone.utc))
+
+
+def _clear_failures(email: str) -> None:
+    with _login_lock:
+        _login_failures.pop(email, None)
 
 
 def _mask_email(email: str) -> str:
@@ -105,9 +135,15 @@ async def login(request: Request, body: LoginIn, db: Session = Depends(get_db)):
     email = body.email.lower()
     logger.info("login attempt: %s", _mask_email(email))
 
+    # Reject early if the account is locked (too many recent failures).
+    if _is_locked(email):
+        audit.warning("event=login result=locked actor=%s", _mask_email(email))
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
+
     # 1. Local DB (always cheap; never depends on Prognosis)
     p = db.scalar(select(Provider).where(Provider.email == email))
     if p and p.is_active and verify_password(body.password, p.password_hash):
+        _clear_failures(email)
         logger.info("login OK via local DB: %s (role=%s)", _mask_email(email), p.role)
         audit.info("event=login result=ok method=local actor=%s role=%s", _mask_email(email), p.role)
         return _mint(p)
@@ -117,6 +153,7 @@ async def login(request: Request, body: LoginIn, db: Session = Depends(get_db)):
         try:
             pp = await prognosis.provider_login(email, body.password)
             p = _upsert_from_prognosis(db, pp)
+            _clear_failures(email)
             logger.info("login OK via Prognosis: %s", _mask_email(email))
             audit.info("event=login result=ok method=prognosis actor=%s", _mask_email(email))
             return _mint(p)
@@ -125,6 +162,7 @@ async def login(request: Request, body: LoginIn, db: Session = Depends(get_db)):
             # Fall through to a uniform 401 so we don't leak whether
             # Prognosis was down vs bad creds to unauthed callers.
 
+    _record_failure(email)
     audit.warning("event=login result=fail actor=%s", _mask_email(email))
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
 

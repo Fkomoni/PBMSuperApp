@@ -1,5 +1,6 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 
+from app.core.limiter import limiter
 from app.core.security import current_provider
 from app.services import drug_catalog
 
@@ -7,7 +8,8 @@ router = APIRouter(prefix="/medications", tags=["medications"], dependencies=[De
 
 
 @router.get("/search")
-async def search(q: str = Query(..., min_length=1), limit: int = Query(default=20, ge=1, le=100)):
+@limiter.limit("120/minute")
+async def search(request: Request, q: str = Query(..., min_length=1, max_length=200), limit: int = Query(default=20, ge=1, le=100)):
     """Drug autocomplete backed by the Nigerian formulary catalog in
     app.services.drug_catalog.
 

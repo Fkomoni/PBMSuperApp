@@ -2,12 +2,13 @@ import logging
 from datetime import datetime, timezone
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
+from app.core.limiter import limiter
 from app.core.routing import classify_bucket
 from app.core.security import current_provider
 from app.models import MedicationRequest, MedicationRequestAttachment, MedicationRequestItem, TrackingEvent
@@ -123,7 +124,9 @@ async def _enrich_from_prognosis(enrollee_id: str) -> dict:
 
 
 @router.post("", response_model=MedicationRequestOut)
+@limiter.limit("30/minute")
 async def submit(
+    request: Request,
     payload: MedicationRequestIn,
     provider: dict = Depends(current_provider),
     db: Session = Depends(get_db),
@@ -430,7 +433,9 @@ def _can_see_request(req: MedicationRequest, provider: dict) -> bool:
 
 
 @router.post("/{request_id}/attachments")
+@limiter.limit("30/minute")
 async def upload_attachment(
+    request: Request,
     request_id: str,
     file: UploadFile = File(...),
     provider: dict = Depends(current_provider),
