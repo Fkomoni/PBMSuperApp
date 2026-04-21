@@ -18,12 +18,12 @@ databases:
     databaseName: rxhub
     user: rxhub
 
+services:
   - type: redis
     name: rxhub-redis
     plan: free
     maxmemoryPolicy: allkeys-lru
 
-services:
   - type: web
     name: rxhub-provider-api
     runtime: python
