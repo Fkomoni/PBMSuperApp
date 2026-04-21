@@ -64,7 +64,7 @@ function ProviderLogin({ onBack, onSignedIn }) {
         <button className="login__back" onClick={onBack}><RxIcon name="arrow-left" size={14} /> Back to role picker</button>
         <div>
           <div className="login__quote">Prescribe it.<br /><span className="accent">We'll handle the rest.</span></div>
-          <div className="login__testimonial">Leadway RxHub pharmacy network covers 236 states and is fulfilled by vetted partner pharmacies. Your orders are auto-routed to the nearest fulfilment channel.</div>
+          <div className="login__testimonial">Leadway RxHub pharmacy network covers 36 states and is fulfilled by vetted partner pharmacies. Your orders are auto-routed to the nearest fulfilment channel.</div>
 
           <ul style={{ listStyle: "none", padding: 0, margin: "28px 0 0", display: "grid", gap: 12 }}>
             {[
