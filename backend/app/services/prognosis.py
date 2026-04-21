@@ -34,6 +34,16 @@ logger = logging.getLogger("rxhub.prognosis")
 _TIMEOUT = httpx.Timeout(12.0, connect=4.0)
 
 
+def _mask_email(email: str) -> str:
+    """Partially mask an email for log output to reduce PII exposure."""
+    parts = (email or "").split("@", 1)
+    if len(parts) != 2:
+        return "***"
+    local, domain = parts
+    masked_local = local[:2] + "***" if len(local) > 2 else "***"
+    return f"{masked_local}@{domain}"
+
+
 # ── Endpoints ────────────────────────────────────────────────────────
 API_USERS_LOGIN_PATH = "/api/ApiUsers/Login"
 LOGIN_PATH           = "/api/ProviderNetwork/ProviderLogIn"
@@ -100,7 +110,7 @@ async def _fetch_api_token() -> str:
 
     url = settings.prognosis_base_url.rstrip("/") + API_USERS_LOGIN_PATH
     body = _api_users_login_payload(settings.prognosis_username, settings.prognosis_password)
-    logger.info("ApiUsers/Login POST %s (user=%s)", url, settings.prognosis_username)
+    logger.info("ApiUsers/Login POST %s (user=%s)", url, _mask_email(settings.prognosis_username or ""))
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             resp = await client.post(url, json=body, headers={
@@ -281,7 +291,7 @@ async def provider_login(email: str, password: str) -> PrognosisProvider:
         "POST", LOGIN_PATH, body=_build_login_payload(email, password)
     )
     snippet = str(data)[:400]
-    logger.info("ProviderLogIn %s → HTTP %s · body=%s", email, status_code, snippet)
+    logger.info("ProviderLogIn %s → HTTP %s · body=%s", _mask_email(email), status_code, snippet)
 
     if _is_credential_reject(status_code, data):
         msg = (isinstance(data, dict) and (data.get("message") or data.get("Message"))) or "Invalid email or password"
@@ -438,7 +448,7 @@ async def send_email(
         "Reference": reference,
         "TransactionType": transaction_type,
     }
-    logger.info("SendEmailAlert → to=%s · subject=%s · body-chars=%d", to, subject, len(body))
+    logger.info("SendEmailAlert → to=%s · subject=%s · body-chars=%d", _mask_email(to), subject, len(body))
     status_code, data = await _bearer_request("POST", EMAIL_ALERT_PATH, body=payload)
     logger.info("SendEmailAlert ← HTTP %s · body=%s", status_code, str(data)[:500])
     if status_code >= 400:

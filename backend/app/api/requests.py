@@ -29,6 +29,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/medication-requests", tags=["requests"])
 
 
+def _mask_email(email: str | None) -> str:
+    parts = (email or "").split("@", 1)
+    if len(parts) != 2:
+        return "***"
+    local, domain = parts
+    return (local[:2] + "***" if len(local) > 2 else "***") + "@" + domain
+
+
 SPECIAL = {"hormonal", "cancer", "autoimmune", "fertility"}
 
 
@@ -305,7 +313,7 @@ async def submit(
             )
             db.add(TrackingEvent(
                 request_id=req.id,
-                label=f"Member notified by email ({req.enrollee_email})",
+                label=f"Member notified by email ({_mask_email(req.enrollee_email)})",
                 kind="done",
                 icon="mail",
                 at=datetime.now(timezone.utc),
