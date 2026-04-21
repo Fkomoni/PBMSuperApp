@@ -77,11 +77,22 @@ def _bootstrap_admin() -> None:
         with SessionLocal() as db:
             existing = db.scalar(select(Provider).where(Provider.email == email))
             if existing:
-                existing.role = "admin"
-                existing.is_active = True
-                existing.password_hash = hash_password(password)
-                existing.name = existing.name or settings.admin_bootstrap_name
-                log.info("BOOT  admin bootstrap: promoted %s to role=admin", email)
+                # Only fix role/active status on subsequent boots — never reset the
+                # password automatically. An operator who needs to reset the password
+                # should use seed_provider.py or rotate ADMIN_BOOTSTRAP_PASSWORD and
+                # delete the account first, to avoid silently overwriting a changed pw.
+                changed = False
+                if existing.role != "admin":
+                    existing.role = "admin"
+                    changed = True
+                if not existing.is_active:
+                    existing.is_active = True
+                    changed = True
+                if changed:
+                    log.info("BOOT  admin bootstrap: promoted %s to role=admin", email)
+                    db.commit()
+                else:
+                    log.info("BOOT  admin bootstrap: %s already has role=admin, no changes", email)
             else:
                 db.add(Provider(
                     email=email,
@@ -90,8 +101,8 @@ def _bootstrap_admin() -> None:
                     role="admin",
                     is_active=True,
                 ))
+                db.commit()
                 log.info("BOOT  admin bootstrap: created %s with role=admin", email)
-            db.commit()
     except Exception as e:  # never let a bootstrap glitch crash the app
         log.warning("BOOT  admin bootstrap failed: %s", e)
 

@@ -47,7 +47,8 @@ services:
           name: rxhub-db
           property: connectionString
 
-      # ── CORS: comma-separated. Tighten to your portal URL in prod. ──
+      # ── CORS: required in production. Comma-separated allowed origins. ──
+      # The app will refuse to start in production if this is missing or set to *.
       - key: CORS_ORIGINS
         value: https://rxhub-provider-portal.onrender.com
 

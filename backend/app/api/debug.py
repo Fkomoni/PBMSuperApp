@@ -1,4 +1,8 @@
-"""Live diagnostics for the Prognosis integration."""
+"""Live diagnostics for the Prognosis integration.
+
+All endpoints in this router require admin authentication.
+The entire router is excluded from the app in production (ENVIRONMENT=production).
+"""
 from __future__ import annotations
 
 import os
@@ -12,7 +16,14 @@ from app.core.config import settings
 from app.core.security import current_admin
 from app.services import prognosis
 
-router = APIRouter(prefix="/_debug", tags=["debug"])
+# Every endpoint in this router requires an admin JWT.
+router = APIRouter(
+    prefix="/_debug",
+    tags=["debug"],
+    dependencies=[Depends(current_admin)],
+)
+
+_TEST_PHONE = "+234XXXXXXXXXX"  # placeholder — set a real test number in the Render dashboard
 
 
 def _mask(value: str | None) -> str:
@@ -34,8 +45,8 @@ def _file_mtime(path: str) -> str:
 @router.get("/sources")
 async def sources():
     """One-shot provenance check: tells you exactly where each autocomplete
-    source is pulled from. Public, redacted. Use this to answer "is my data
-    real or stubbed?" without digging through code.
+    source is pulled from. Use this to answer "is my data real or stubbed?"
+    without digging through code.
     """
     wh = settings.wellahealth_base_url or ""
     wh_env = "staging" if "staging" in wh else ("production" if "api.wellahealth" in wh else "custom/unknown")
@@ -74,12 +85,10 @@ async def sources():
 @router.get("/prognosis")
 async def prognosis_config():
     """Live Prognosis config, file mtimes, and service-Bearer cache state.
-    Public — all sensitive fields are redacted.
+    All sensitive fields are redacted.
     """
-    # Don't try to fetch a fresh token here (network hop). Just show cache.
     token_info = prognosis.token_cache_info()
 
-    backend_root = Path(__file__).resolve().parents[2]
     return {
         "prognosis_base_url": settings.prognosis_base_url,
         "prognosis_username": _mask(settings.prognosis_username),
@@ -92,12 +101,6 @@ async def prognosis_config():
             "send_email":      prognosis.EMAIL_ALERT_PATH,
         },
         "service_bearer_cache": token_info,
-        "build_markers": {
-            "prognosis_service_mtime": _file_mtime(str(backend_root / "app" / "services" / "prognosis.py")),
-            "auth_api_mtime":          _file_mtime(str(backend_root / "app" / "api" / "auth.py")),
-            "debug_api_mtime":         _file_mtime(__file__),
-            "server_time_utc":         datetime.now(timezone.utc).isoformat(),
-        },
     }
 
 
@@ -106,7 +109,6 @@ async def prognosis_enrollee_raw(enrollee_id: str):
     """Fetch the RAW Prognosis GetEnrolleeBioDataByEnrolleeID response for a
     given enrollee ID. Strips the giant base64 picture payload so you can
     actually read the fields that matter. Returns {status_code, keys, raw, mapped}.
-    Public — read-only, member biographical data.
     """
     status_code, body = await prognosis._bearer_request(  # noqa: SLF001
         "GET", prognosis.ENROLLEE_VERIFY_PATH, params={"enrolleeid": enrollee_id}
@@ -131,8 +133,7 @@ async def prognosis_enrollee_raw(enrollee_id: str):
 async def prognosis_token_claims():
     """Decode the cached Prognosis Bearer (no signature verification)
     so you can confirm whether our service account matches the one
-    your Postman session is using. Shows the JWT `sub` and any other
-    claims — redacted if longer than 40 chars.
+    your Postman session is using.
     """
     import base64 as _b64
     import json as _json
@@ -145,7 +146,7 @@ async def prognosis_token_claims():
     parts = bearer.split(".")
     if len(parts) < 2:
         return {"ok": False, "error": "Bearer is not a JWT", "bearer_prefix": bearer[:20] + "…"}
-    # JWT uses URL-safe base64; pad to multiple of 4
+
     def _pad(s):
         return s + "=" * (-len(s) % 4)
     try:
@@ -154,7 +155,6 @@ async def prognosis_token_claims():
     except Exception as e:
         return {"ok": False, "error": f"Failed to decode JWT: {e}", "bearer_prefix": bearer[:20] + "…"}
 
-    # Redact anything very long
     for k, v in list(payload.items()):
         if isinstance(v, str) and len(v) > 40:
             payload[k] = v[:10] + "…" + v[-5:]
@@ -171,10 +171,8 @@ async def prognosis_token_claims():
 async def prognosis_send_test_email(
     to: str = Query(..., description="Recipient email address"),
 ):
-    """Fire the exact same SendEmailAlert payload you shared as a
-    known-working call, just with the recipient swapped. If this
-    still returns 'fail: Email sending failed', the issue is upstream
-    (Prognosis mail relay, whitelist, etc.) — not our wire format.
+    """Fire the exact same SendEmailAlert payload as a known-working call,
+    just with the recipient swapped.
     """
     try:
         resp = await prognosis.send_email(
@@ -192,12 +190,9 @@ async def prognosis_send_test_email_verbose(
     to: str = Query(..., description="Recipient email address"),
     auth: str = Query(default="bearer", description="bearer | basic | none"),
 ):
-    """Show exactly what we send to Prognosis SendEmailAlert + what we get
-    back. Tries different auth schemes so we can see which one the endpoint
-    actually expects.
-    """
+    """Show exactly what we send to Prognosis SendEmailAlert + what we get back."""
     import base64
-    import httpx
+    import json as _json
 
     url = settings.prognosis_base_url.rstrip("/") + prognosis.EMAIL_ALERT_PATH
     payload = {
@@ -239,8 +234,6 @@ async def prognosis_send_test_email_verbose(
     except httpx.HTTPError as e:
         return {"ok": False, "error": str(e), "url": url, "auth": auth_repr}
 
-    # Equivalent cURL so you can copy/run it yourself to compare
-    import json as _json
     curl_parts = [f"curl -X POST '{url}'"]
     for k, v in headers.items():
         if k.lower() == "authorization":
@@ -269,12 +262,8 @@ async def wellahealth_pharmacies(
     lga: str | None = Query(default=None, description="Optional LGA, e.g. Surulere"),
     page_size: int = Query(default=50, ge=1, le=500),
 ):
-    """Raw Wella pharmacy list dump. Use to verify the live API actually
-    returns pharmacies and to see the exact field names Wella uses so
-    our normaliser matches.
-    """
+    """Raw Wella pharmacy list dump."""
     import base64
-    import httpx
 
     cid = (settings.wellahealth_client_id or "").strip()
     cs  = (settings.wellahealth_client_secret or "").strip()
@@ -305,21 +294,17 @@ async def wellahealth_pharmacies(
     except httpx.HTTPError as e:
         return {"ok": False, "error": str(e), "url": url}
 
-    # Unwrap common envelope shapes
     data_candidates: list = []
+    wrapper_key = None
     if isinstance(body, dict):
         for k in ("data", "Data", "result", "Result", "items", "Items"):
             if isinstance(body.get(k), list):
                 data_candidates = body[k]
                 wrapper_key = k
                 break
-        else:
-            wrapper_key = None
     elif isinstance(body, list):
         data_candidates = body
         wrapper_key = "(top-level list)"
-    else:
-        wrapper_key = None
 
     sample_keys = list(data_candidates[0].keys()) if data_candidates else None
 
@@ -339,8 +324,7 @@ async def wellahealth_pharmacies(
 @router.get("/whatsapp/config")
 async def whatsapp_config():
     """Show the WhatsApp bot URL/path this instance will POST to, plus
-    which env vars are populated. Redacted numbers. Use this after
-    changing WHATSAPP_SEND_PATH to confirm the new value is live.
+    which env vars are populated. Redacted numbers.
     """
     from app.services import whatsapp as wa
     full_url = settings.whatsapp_bot_url.rstrip("/") + (settings.whatsapp_send_path or "/send-message")
@@ -353,20 +337,18 @@ async def whatsapp_config():
         "api_key_header":     settings.whatsapp_api_key_header or "X-API-Key",
         "api_key_set":        bool(settings.whatsapp_api_key),
         "api_key_length":     len(settings.whatsapp_api_key or ""),
-        "sample_payload":     wa._build_payload("+234XXXXXXXXXX", "NEW MEDICATION REQUEST ..."),  # noqa: SLF001
+        "sample_payload":     wa._build_payload(_TEST_PHONE, "NEW MEDICATION REQUEST ..."),  # noqa: SLF001
     }
 
 
 @router.get("/whatsapp/find-auth")
 async def whatsapp_find_auth(
     api_key: str = Query(..., description="The raw API key value the bot expects"),
-    to: str = Query(default="+2348188626141"),
+    to: str = Query(default=_TEST_PHONE),
 ):
     """Try every common auth scheme with the given API key against the
-    configured bot path. Returns the status each returned so we can see
-    which header format the bot accepts without redeploying.
+    configured bot path. Returns the status each returned.
     """
-    import httpx
     from app.services import whatsapp as wa
 
     url = settings.whatsapp_bot_url.rstrip("/") + (settings.whatsapp_send_path or "/send-message")
@@ -408,7 +390,6 @@ async def whatsapp_find_auth(
                 "body":         parsed or body,
             })
 
-    # Sort: any 2xx first, then 401s, then others
     results.sort(key=lambda r: (0 if r.get("status", 0) in range(200, 300) else 1 if r.get("status") == 401 else 2))
     return {"url": url, "results": results}
 
@@ -416,18 +397,10 @@ async def whatsapp_find_auth(
 @router.get("/whatsapp/probe")
 async def whatsapp_probe(
     path: str = Query(default=None, description="Path to POST to; defaults to WHATSAPP_SEND_PATH"),
-    to: str = Query(default="+2348188626141"),
+    to: str = Query(default=_TEST_PHONE),
     message: str = Query(default="RxHub probe - ignore"),
 ):
-    """POST a one-line test message to a path on the bot and return what
-    comes back. Uses the configured field names (WHATSAPP_FIELD_PHONE /
-    WHATSAPP_FIELD_MESSAGE). Example:
-
-        /api/v1/_debug/whatsapp/probe                       (uses configured path)
-        /api/v1/_debug/whatsapp/probe?path=/send-message
-        /api/v1/_debug/whatsapp/probe?path=/messages&to=+234...
-    """
-    import httpx
+    """POST a one-line test message to a path on the bot and return what comes back."""
     from app.services import whatsapp as wa
 
     if not settings.whatsapp_bot_url:
@@ -465,23 +438,20 @@ async def whatsapp_probe(
 
 @router.get("/whatsapp/preview")
 async def whatsapp_preview(channel: str = Query(default="leadway_pbm_whatsapp_1")):
-    """Render the exact WhatsApp message the bot would receive for a
-    sample chronic request. Use to sanity-check formatting before
-    submitting real prescriptions.
-    """
+    """Render the exact WhatsApp message the bot would receive for a sample chronic request."""
     from app.services import whatsapp as wa
     sample = {
         "id": "SAMPLE001",
         "ref_code": "RX-20260412-48E012",
-        "enrollee_id": "21000645/0",
-        "enrollee_name": "Mbaekwe Nkiru",
-        "enrollee_phone": "08188626141",
+        "enrollee_id": "00000000/0",
+        "enrollee_name": "Test Member",
+        "enrollee_phone": "080XXXXXXXX",
         "enrollee_state": "Lagos",
         "provider_facility": "PHARMACY BENEFIT PROGRAMME",
         "treating_doctor": None,
         "urgency": "routine",
         "diagnoses": [{"code": "I10", "name": "Essential (primary) hypertension"}],
-        "delivery": {"formatted": "17 Ajanaku St, Opebi, Lagos 101233, Lagos, Nigeria"},
+        "delivery": {"formatted": "17 Example St, Lagos, Nigeria"},
         "classification": "chronic",
         "channel": channel,
         "items": [
@@ -509,14 +479,14 @@ async def whatsapp_send_test(
     sample = {
         "id": "SAMPLE001",
         "ref_code": "RX-TEST-000001",
-        "enrollee_id": "21000645/0",
-        "enrollee_name": "Mbaekwe Nkiru",
-        "enrollee_phone": "08188626141",
+        "enrollee_id": "00000000/0",
+        "enrollee_name": "Test Member",
+        "enrollee_phone": "080XXXXXXXX",
         "enrollee_state": "Lagos",
         "provider_facility": "PHARMACY BENEFIT PROGRAMME",
         "urgency": "routine",
         "diagnoses": [{"code": "I10", "name": "Essential (primary) hypertension"}],
-        "delivery": {"formatted": "17 Ajanaku St, Opebi, Lagos, Nigeria"},
+        "delivery": {"formatted": "17 Example St, Lagos, Nigeria"},
         "classification": "chronic",
         "channel": channel,
         "items": [
@@ -537,12 +507,10 @@ async def whatsapp_send_test(
 
 @router.get("/request/{request_id}")
 async def request_state(request_id: str):
-    """Diagnostic: show the full routing decision + tracking timeline for
-    a request. Public so you can hit it from a browser.
-    """
+    """Diagnostic: show the full routing decision + tracking timeline for a request."""
     from sqlalchemy.orm import Session as _Session
     from app.core.db import SessionLocal
-    from app.models import MedicationRequest, TrackingEvent
+    from app.models import MedicationRequest
     from app.services import whatsapp as wa
 
     db: _Session = SessionLocal()
@@ -582,9 +550,7 @@ async def request_state(request_id: str):
 
 @router.get("/wellahealth/config")
 async def wellahealth_config():
-    """Show what WellaHealth credentials this instance thinks it has.
-    All values redacted — safe to open from a browser.
-    """
+    """Show what WellaHealth credentials this instance thinks it has. All values redacted."""
     import base64
     cid = settings.wellahealth_client_id or ""
     cs  = settings.wellahealth_client_secret or ""
@@ -607,12 +573,8 @@ async def wellahealth_config():
 
 @router.get("/wellahealth/ping")
 async def wellahealth_ping():
-    """Fire the lightest Wella endpoint (GET /public/v1/Fulfilments with
-    pageSize=1) and return exactly what we send + what they say back. If
-    auth's broken this is where we'll see the failure clearly.
-    """
+    """Fire the lightest Wella endpoint and return exactly what we send + what they say back."""
     import base64
-    import httpx
 
     cid = (settings.wellahealth_client_id or "").strip()
     cs  = (settings.wellahealth_client_secret or "").strip()
@@ -657,10 +619,7 @@ async def wellahealth_ping():
 
 @router.post("/prognosis/refresh-token")
 async def prognosis_refresh_token():
-    """Force-exchange the service creds for a new Bearer. Returns the
-    resulting cache state (token preview only). Public so you can prove
-    Prognosis accepts your service account before wiring in providers.
-    """
+    """Force-exchange the service creds for a new Bearer. Returns the resulting cache state (token preview only)."""
     try:
         bearer = await prognosis._get_bearer(force=True)  # noqa: SLF001
         return {
@@ -672,16 +631,12 @@ async def prognosis_refresh_token():
         return {"ok": False, "error": str(e)}
 
 
-@router.post("/prognosis/test-login", dependencies=[Depends(current_admin)])
+@router.post("/prognosis/test-login")
 async def prognosis_test_login(
     email: str = Query(...),
     password: str = Query(...),
 ):
-    """Live ProviderLogIn test — admin-only since it takes a real password.
-
-    Returns the Prognosis response status + body verbatim so you can see
-    exactly what happens for any given provider.
-    """
+    """Live ProviderLogIn test. Returns the Prognosis response status + body verbatim."""
     try:
         pp = await prognosis.provider_login(email, password)
         return {"ok": True, "provider": pp.__dict__}

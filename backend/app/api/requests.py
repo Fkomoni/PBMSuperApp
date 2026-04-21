@@ -385,6 +385,38 @@ _ATTACH_ALLOWED_MIME = {
 }
 _ATTACH_MAX_BYTES = 8 * 1024 * 1024  # 8MB
 
+# Magic-byte signatures for each allowed MIME type. We verify the actual file
+# bytes match the declared Content-Type so a client cannot bypass the allowlist
+# by simply lying about the content type.
+_MAGIC_SIGNATURES: list[tuple[bytes, set[str]]] = [
+    (b"\x25\x50\x44\x46", {"application/pdf"}),                           # %PDF
+    (b"\x89\x50\x4e\x47\x0d\x0a\x1a\x0a", {"image/png"}),                 # PNG
+    (b"\xff\xd8\xff", {"image/jpeg", "image/jpg"}),                        # JPEG
+    (b"\x52\x49\x46\x46", {"image/webp"}),                                 # RIFF (WebP)
+    # HEIC/HEIF use the ISO Base Media File Format — ftyp box at offset 4.
+    # Check for the ftyp marker rather than a fixed magic at byte 0.
+]
+
+_HEIC_BRANDS = {b"heic", b"heix", b"hevc", b"hevx", b"mif1", b"msf1"}
+
+
+def _validate_magic_bytes(data: bytes, content_type: str) -> bool:
+    """Return True if the file's magic bytes are consistent with content_type."""
+    ct = content_type.lower()
+
+    if ct in ("image/heic", "image/heif"):
+        # ftyp box: bytes 4-8 are "ftyp", bytes 8-12 are the brand
+        if len(data) >= 12 and data[4:8] == b"ftyp":
+            brand = data[8:12].lower()
+            return any(brand.startswith(b) for b in _HEIC_BRANDS)
+        return False
+
+    for magic, allowed_types in _MAGIC_SIGNATURES:
+        if data[:len(magic)] == magic:
+            return ct in allowed_types
+
+    return False
+
 
 def _can_see_request(req: MedicationRequest, provider: dict) -> bool:
     """Owning provider or any admin may access a request's attachments."""
@@ -416,6 +448,13 @@ async def upload_attachment(
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail=f"File exceeds {_ATTACH_MAX_BYTES // (1024*1024)}MB limit",
+        )
+
+    # Verify actual file bytes match the declared content type.
+    if not _validate_magic_bytes(data, content_type):
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="File content does not match the declared content type.",
         )
 
     att = MedicationRequestAttachment(
@@ -483,11 +522,15 @@ async def download_attachment(
     att = db.get(MedicationRequestAttachment, attachment_id)
     if not att or att.request_id != req.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attachment not found")
-    # `inline` lets the browser render PDFs/images directly; filename kept
-    # so a right-click "Save as" has the original name.
-    safe_name = att.filename.replace('"', "")
+    import re as _re
+    # Strip characters that could break the Content-Disposition header or enable
+    # header injection. Keep only word chars, hyphens, dots, and spaces.
+    safe_name = _re.sub(r'[^\w\-. ]', '_', att.filename or "prescription")[:200]
     return Response(
         content=att.data,
         media_type=att.content_type,
-        headers={"Content-Disposition": f'inline; filename="{safe_name}"'},
+        headers={
+            "Content-Disposition": f'attachment; filename="{safe_name}"',
+            "X-Content-Type-Options": "nosniff",
+        },
     )

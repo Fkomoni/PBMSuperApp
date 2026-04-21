@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     environment: str = "local"
 
     # ── JWT (portal sessions) ──────────────────────────────────────────
-    jwt_secret: str = "change-me-in-prod"
+    jwt_secret: str = "change-me-in-local-dev-only-set-JWT_SECRET-in-production"
     jwt_algorithm: str = "HS256"
     jwt_ttl_hours: int = 8
 
@@ -69,7 +69,9 @@ class Settings(BaseSettings):
     admin_bootstrap_name: str = "RxHub Admin"
 
     # ── CORS ───────────────────────────────────────────────────────────
-    cors_origins: str = "*"
+    # Comma-separated list of allowed origins. NEVER use "*" in production.
+    # Example: https://rxhub-provider-portal.onrender.com,http://localhost:3000
+    cors_origins: str = ""
 
 
 settings = Settings()
