@@ -12,12 +12,50 @@ function ProviderApp() {
   rxE(() => { if (window.lucide) window.lucide.createIcons(); }, [stage, page]);
   rxE(() => { localStorage.setItem("rx.provider.page", page); }, [page]);
 
-  // Parent-app handoff: if the URL contains ?token=<prognosis> or
-  // ?handoff=<email>&secret=<shared-secret>, exchange it for a portal JWT
-  // and skip the login screen entirely.
+  // Parent-app handoff: skip the login screen when the parent portal has
+  // already authenticated the provider. Three modes (in priority order):
+  //
+  // 1. ?rx_token=<rxhub_jwt>  — Preferred. The parent portal's *server* calls
+  //    POST /api/v1/auth/session-exchange with {email, parent_shared_secret}
+  //    (EMBED_SHARED_SECRET env var), receives an RxHub JWT, and injects it
+  //    into the iframe/link URL. The shared secret never touches the browser.
+  //
+  // 2. ?handoff=<email>&secret=<shared_secret>  — Simple fallback when the
+  //    parent app can't do server-to-server calls. The shared secret travels
+  //    in the URL (visible in browser history / logs) — use mode 1 where
+  //    possible.
+  //
+  // 3. ?token=<prognosis_bearer>  — Future Prognosis passthrough (not yet
+  //    wired on the backend; will return 501 until implemented).
   rxE(() => {
     if (stage === "app") return;
     const u = new URL(window.location.href);
+
+    // Mode 1: direct RxHub JWT — decode claims, store, and go straight in.
+    const rxToken = u.searchParams.get("rx_token");
+    if (rxToken) {
+      try {
+        const parts = rxToken.split(".");
+        const claims = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
+        providerAuth.setToken(rxToken);
+        const sess = {
+          role: claims.role || "provider",
+          email: claims.email || "",
+          name: claims.name || "",
+          provider_id: claims.sub,
+        };
+        providerAuth.setSession(sess);
+        setSession(sess);
+        setStage("app");
+        u.searchParams.delete("rx_token");
+        window.history.replaceState({}, "", u.pathname + (u.searchParams.toString() ? "?" + u.searchParams.toString() : ""));
+      } catch (_) {
+        setHandoffErr("Auto sign-in token was invalid — please log in below.");
+      }
+      return;
+    }
+
+    // Mode 2 & 3: exchange via the backend.
     const prognosisToken = u.searchParams.get("token");
     const handoffEmail = u.searchParams.get("handoff");
     const handoffSecret = u.searchParams.get("secret");
@@ -31,7 +69,6 @@ function ProviderApp() {
       const provider = (data && data.provider) || providerAuth.getSession() || {};
       setSession({ role: "provider", ...provider });
       setStage("app");
-      // Scrub the credentials from the address bar.
       u.searchParams.delete("token");
       u.searchParams.delete("handoff");
       u.searchParams.delete("secret");
