@@ -115,6 +115,10 @@ class DeliveryIn(BaseModel):
     lat: float | None = None
     lng: float | None = None
     place_id: str | None = Field(default=None, max_length=512)
+    # Parsed by Google Places (administrative_area_level_1/2) — drives the
+    # LGA-aware routing rule for Ibeju-Lekki / Epe acute pilot.
+    state: str | None = Field(default=None, max_length=64)
+    lga: str | None = Field(default=None, max_length=64)
 
 
 class MedicationRequestIn(BaseModel):

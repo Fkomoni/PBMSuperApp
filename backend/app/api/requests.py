@@ -143,7 +143,11 @@ async def submit(
     # that's where the meds are going. Fall back to Prognosis's registered
     # state if the provider left it blank.
     state = payload.member_state or enrollee.get("state")
-    route = classify_bucket(route_kinds, state=state)
+    # LGA comes from the Google-Places-parsed delivery address. Used by the
+    # Ibeju-Lekki / Epe acute pilot rule so even a mis-detected state can't
+    # divert those far-reach orders away from WellaHealth.
+    delivery_lga = payload.delivery.lga if payload.delivery else None
+    route = classify_bucket(route_kinds, state=state, lga=delivery_lga)
 
     # Provider-supplied values win when Prognosis returned nothing; otherwise
     # Prognosis is authoritative. Keeps legacy member records up to date

@@ -639,8 +639,19 @@ function AddressFieldInline({ value, onChange, placeholder }) {
 }
 
 // ─── Routing preview (mirrors backend rules) ────────────────────────
-function previewRoute({ classifications, state }) {
+const ACUTE_PILOT_LGAS = new Set(["ibeju-lekki", "epe"]);
+
+function _normLgaKey(s) {
+  if (!s) return "";
+  return String(s).trim().toLowerCase()
+    .replace(/\blga\b/g, "")
+    .replace(/[\s\-_/]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function previewRoute({ classifications, state, lga }) {
   const isLagos = (state || "").toLowerCase() === "lagos";
+  const isPilotLga = ACUTE_PILOT_LGAS.has(_normLgaKey(lga));
 
   const hasChronic = classifications.includes("chronic");
   const hasAcute = classifications.includes("acute");
@@ -649,7 +660,13 @@ function previewRoute({ classifications, state }) {
   if (hasSpecial) return { channel: isLagos ? "Leadway PBM · WhatsApp #1" : "Leadway PBM · WhatsApp #2", kind: "special" };
   if (hasChronic && hasAcute) return { channel: "Leadway PBM · WhatsApp #1 (mixed)", kind: "mixed" };
   if (hasChronic) return { channel: "Leadway PBM · WhatsApp #2", kind: "chronic" };
-  if (hasAcute) return { channel: "WellaHealth partner pharmacy", kind: "acute" };
+  if (hasAcute) {
+    if (isPilotLga) {
+      const pilotName = _normLgaKey(lga) === "ibeju-lekki" ? "Ibeju-Lekki" : "Epe";
+      return { channel: `WellaHealth partner pharmacy (${pilotName} pilot)`, kind: "acute-pilot" };
+    }
+    return { channel: "WellaHealth partner pharmacy", kind: "acute" };
+  }
   return { channel: "—", kind: "none" };
 }
 
@@ -730,7 +747,10 @@ function ProviderNewRequest({ session, initialMember, onSubmitted, onCancel }) {
 
   const validDrugs = drugs.filter(d => d.drug_name && d.dose && d.frequency && d.duration_days);
   const classifications = Array.from(new Set(validDrugs.map(d => d.classification).filter(Boolean)));
-  const routing = rxM(() => previewRoute({ classifications, state }), [classifications.join("|"), state]);
+  const routing = rxM(
+    () => previewRoute({ classifications, state, lga: address?.lga }),
+    [classifications.join("|"), state, address?.lga],
+  );
 
   const canSubmit =
     member &&
@@ -780,6 +800,8 @@ function ProviderNewRequest({ session, initialMember, onSubmitted, onCancel }) {
           lat: address.lat,
           lng: address.lng,
           place_id: address.place_id,
+          state: address.state || null,
+          lga: address.lga || null,
         } : null,
         member_phone: memberPhone || null,
         member_email: memberEmail || null,
