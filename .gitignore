@@ -11,3 +11,8 @@ dist/
 .idea/
 .vscode/
 *.log
+# Local SQLite fallback DB (dev only; DATABASE_URL is used in production)
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
