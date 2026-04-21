@@ -6,15 +6,19 @@ const API_BASE = window.__API_BASE__ || "https://leadway-rx-api.onrender.com/api
 const TOKEN_KEY = "rx.provider.token";
 const SESSION_KEY = "rx.provider.session";
 
-function getToken() { return localStorage.getItem(TOKEN_KEY); }
-function setToken(t) { if (t) localStorage.setItem(TOKEN_KEY, t); else localStorage.removeItem(TOKEN_KEY); }
+// sessionStorage is tab-scoped and cleared when the tab closes — tokens are
+// not accessible to scripts injected by XSS from other tabs and are not
+// persisted to disk after the session ends. localStorage would expose the
+// token to any XSS payload indefinitely.
+function getToken() { return sessionStorage.getItem(TOKEN_KEY); }
+function setToken(t) { if (t) sessionStorage.setItem(TOKEN_KEY, t); else sessionStorage.removeItem(TOKEN_KEY); }
 
 function getSession() {
-  try { return JSON.parse(localStorage.getItem(SESSION_KEY) || "null"); } catch { return null; }
+  try { return JSON.parse(sessionStorage.getItem(SESSION_KEY) || "null"); } catch { return null; }
 }
 function setSession(s) {
-  if (s) localStorage.setItem(SESSION_KEY, JSON.stringify(s));
-  else localStorage.removeItem(SESSION_KEY);
+  if (s) sessionStorage.setItem(SESSION_KEY, JSON.stringify(s));
+  else sessionStorage.removeItem(SESSION_KEY);
 }
 
 async function request(path, { method = "GET", body, query } = {}) {

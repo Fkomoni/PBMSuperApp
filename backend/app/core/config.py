@@ -31,6 +31,13 @@ class Settings(BaseSettings):
                 raise RuntimeError(
                     f"JWT_SECRET must be at least {_JWT_SECRET_MIN_LEN} characters long."
                 )
+            cors = (self.cors_origins or "").strip()
+            if not cors or cors == "*":
+                raise RuntimeError(
+                    "CORS_ORIGINS must be set to one or more explicit origins in production "
+                    "(e.g. https://rxhub-provider-portal.onrender.com). "
+                    "A wildcard '*' allows any origin to call the API."
+                )
 
     # ── Database ───────────────────────────────────────────────────────
     database_url: str | None = None

@@ -41,17 +41,29 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title=settings.app_name, lifespan=lifespan)
+    is_prod = settings.environment == "production"
+    app = FastAPI(
+        title=settings.app_name,
+        lifespan=lifespan,
+        # Suppress interactive API docs in production — they expose the full
+        # endpoint inventory and schema to unauthenticated callers.
+        docs_url=None if is_prod else "/docs",
+        redoc_url=None if is_prod else "/redoc",
+        openapi_url=None if is_prod else "/openapi.json",
+    )
 
     # Attach the rate-limiter state and its 429 error handler.
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
     origins = [o.strip() for o in (settings.cors_origins or "").split(",") if o.strip()]
+    use_wildcard = not origins or origins == ["*"]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=origins or ["*"],
-        allow_credentials=True,
+        allow_origins=["*"] if use_wildcard else origins,
+        # allow_credentials MUST be False when allow_origins is "*" — the CORS
+        # spec forbids the combination and browsers will refuse the response.
+        allow_credentials=not use_wildcard,
         allow_methods=["*"],
         allow_headers=["*"],
     )

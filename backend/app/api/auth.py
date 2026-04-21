@@ -168,7 +168,8 @@ class ExchangeIn(BaseModel):
 
 
 @router.post("/auth/session-exchange", response_model=LoginOut)
-async def session_exchange(body: ExchangeIn, db: Session = Depends(get_db)):
+@limiter.limit("10/minute")
+async def session_exchange(request: Request, body: ExchangeIn, db: Session = Depends(get_db)):
     """Mint a portal JWT for a provider who was authenticated by a parent
     app. Two supported modes:
 
