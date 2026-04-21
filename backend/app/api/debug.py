@@ -1,4 +1,9 @@
-"""Live diagnostics for the Prognosis integration."""
+"""Live diagnostics for the Prognosis integration.
+
+ALL endpoints in this router require admin authentication and are only
+mounted when ENVIRONMENT != "production".  Never expose raw credentials,
+token previews, or PHI-fetching utilities on a production instance.
+"""
 from __future__ import annotations
 
 import os
@@ -7,12 +12,17 @@ from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel
 
 from app.core.config import settings
 from app.core.security import current_admin
 from app.services import prognosis
 
-router = APIRouter(prefix="/_debug", tags=["debug"])
+router = APIRouter(
+    prefix="/_debug",
+    tags=["debug"],
+    dependencies=[Depends(current_admin)],  # every endpoint requires admin JWT
+)
 
 
 def _mask(value: str | None) -> str:
@@ -672,18 +682,21 @@ async def prognosis_refresh_token():
         return {"ok": False, "error": str(e)}
 
 
-@router.post("/prognosis/test-login", dependencies=[Depends(current_admin)])
-async def prognosis_test_login(
-    email: str = Query(...),
-    password: str = Query(...),
-):
-    """Live ProviderLogIn test — admin-only since it takes a real password.
+class _TestLoginIn(BaseModel):
+    email: str
+    password: str
 
-    Returns the Prognosis response status + body verbatim so you can see
-    exactly what happens for any given provider.
+
+@router.post("/prognosis/test-login")
+async def prognosis_test_login(body: _TestLoginIn):
+    """Live ProviderLogIn test — admin-only (router-level guard).
+
+    Credentials are sent in the request body (never in the URL) so they
+    don't appear in server access logs, browser history, or proxy caches.
+    Returns the Prognosis response status + body verbatim.
     """
     try:
-        pp = await prognosis.provider_login(email, password)
+        pp = await prognosis.provider_login(body.email, body.password)
         return {"ok": True, "provider": pp.__dict__}
     except prognosis.PrognosisAuthError as e:
         return {"ok": False, "error": str(e), "cache": prognosis.token_cache_info()}

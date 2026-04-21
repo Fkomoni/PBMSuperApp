@@ -19,6 +19,8 @@ BUILD_MARKER = "rxhub-api @ debug-endpoints 2026-04-19"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Fail hard in production if insecure defaults are still in place.
+    settings.validate_secrets()
     init_db()
     logger = logging.getLogger("rxhub.boot")
     logger.setLevel(logging.INFO)
@@ -58,13 +60,16 @@ def create_app() -> FastAPI:
             body_snippet = body_bytes.decode("utf-8")[:4000]
         except Exception:
             body_snippet = "(body unavailable)"
+        # Log the body server-side for debugging — but never send it back to
+        # the caller. A reflected body can leak passwords or PHI that a
+        # misconfigured client accidentally put in the wrong field.
         vlogger.warning("422 on %s %s · errors=%s · body=%s",
                         request.method, request.url.path,
                         json.dumps(exc.errors(), default=str)[:1500],
                         body_snippet)
         return JSONResponse(
             status_code=422,
-            content={"detail": exc.errors(), "received": body_snippet[:500]},
+            content={"detail": exc.errors()},
         )
 
     app.include_router(auth.router, prefix=settings.api_prefix)
@@ -73,7 +78,13 @@ def create_app() -> FastAPI:
     app.include_router(pharmacies.router, prefix=settings.api_prefix)
     app.include_router(requests.router, prefix=settings.api_prefix)
     app.include_router(admin.router, prefix=settings.api_prefix)
-    app.include_router(debug.router, prefix=settings.api_prefix)
+
+    # Debug router is admin-gated AND suppressed entirely in production so
+    # no diagnostic surface (PHI lookups, token refresh, email probes) is
+    # reachable on live infrastructure even if a misconfigured JWT secret
+    # were somehow exploited.
+    if settings.environment != "production":
+        app.include_router(debug.router, prefix=settings.api_prefix)
 
     @app.get("/")
     async def root():

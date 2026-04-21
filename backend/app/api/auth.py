@@ -1,3 +1,4 @@
+import hmac
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -8,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.db import get_db
 from app.core.passwords import hash_password, verify_password
-from app.core.security import create_access_token
+from app.core.security import create_access_token, current_admin
 from app.models import Provider
 from app.schemas.provider import LoginIn, LoginOut, ProviderOut, ProviderRegisterIn
 from app.services import prognosis
@@ -108,10 +109,16 @@ async def login(body: LoginIn, db: Session = Depends(get_db)):
 
 
 @router.post("/providers/register", response_model=ProviderOut, status_code=status.HTTP_201_CREATED)
-async def register(body: ProviderRegisterIn, db: Session = Depends(get_db)):
-    """Create a local-only provider (e.g. PBM admin / break-glass). Real
-    providers should be authenticated via Prognosis, which auto-provisions a
-    row on first sign-in. Gate or disable this route before going live.
+async def register(
+    body: ProviderRegisterIn,
+    _: dict = Depends(current_admin),
+    db: Session = Depends(get_db),
+):
+    """Create a local-only provider (e.g. PBM admin / break-glass). Requires
+    an existing admin JWT so this endpoint cannot be abused by unauthenticated
+    callers to flood the DB or enumerate provider emails. Real providers
+    auto-provision on first Prognosis sign-in; this route is for out-of-band
+    admin-created accounts only.
     """
     existing = db.scalar(select(Provider).where(Provider.email == body.email.lower()))
     if existing:
@@ -177,7 +184,10 @@ async def session_exchange(body: ExchangeIn, db: Session = Depends(get_db)):
     if body.email and body.parent_shared_secret:
         if not settings.embed_shared_secret:
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Embed handoff is disabled on this API")
-        if body.parent_shared_secret != settings.embed_shared_secret:
+        if not hmac.compare_digest(
+            body.parent_shared_secret.encode(),
+            settings.embed_shared_secret.encode(),
+        ):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Bad handoff secret")
         p = db.scalar(select(Provider).where(Provider.email == body.email.lower()))
         if not p or not p.is_active:
