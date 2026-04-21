@@ -1,0 +1,89 @@
+/* Leadway Health — PBM Portal tokens */
+:root {
+  /* Brand palette — from Leadway Mini Manual */
+  --lw-red: #C8102E;
+  --lw-red-dark: #A00D26;
+  --lw-red-press: #8B0B20;
+  --lw-orange: #F47A1F;
+  --lw-orange-dark: #D8651A;
+  --lw-yellow: #F6A524;
+  --lw-sunset: linear-gradient(180deg, #F47A1F 0%, #F6A524 100%);
+
+  --lw-charcoal: #1A1A1A;
+  --lw-ink: #2B2B2B;
+  --lw-ink-2: #4A4A4A;
+  --lw-muted: #6B7280;
+  --lw-muted-2: #9CA3AF;
+
+  --lw-grey-line: #E6E6E6;
+  --lw-grey-line-2: #EFEFEF;
+  --lw-grey-bg: #F7F7F8;
+  --lw-grey-bg-2: #FAFAFA;
+  --lw-white: #FFFFFF;
+
+  /* Semantic */
+  --s-success: #0F9D58;
+  --s-success-bg: #E6F4EC;
+  --s-warn: #E08E00;
+  --s-warn-bg: #FDF4E2;
+  --s-danger: #D12B2B;
+  --s-danger-bg: #FCE8E8;
+  --s-info: #2563EB;
+  --s-info-bg: #E6EEFE;
+
+  /* Semantic aliases — primary CTA (tweakable) */
+  --cta-bg: var(--lw-red);
+  --cta-bg-hover: var(--lw-red-dark);
+  --cta-bg-press: var(--lw-red-press);
+  --cta-fg: #fff;
+
+  /* Layout */
+  --sidebar-w: 244px;
+  --topbar-h: 64px;
+
+  /* Radii */
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
+  --r-xl: 20px;
+  --r-pill: 9999px;
+
+  /* Shadows */
+  --sh-sm: 0 1px 2px rgba(18,18,18,.04), 0 1px 1px rgba(18,18,18,.03);
+  --sh-md: 0 6px 20px rgba(18,18,18,.06), 0 2px 6px rgba(18,18,18,.04);
+  --sh-lg: 0 20px 40px rgba(18,18,18,.09), 0 4px 12px rgba(18,18,18,.05);
+
+  /* Type */
+  --f-sans: "Manrope", ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+  --f-num: "Manrope", ui-sans-serif, system-ui;
+  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: var(--f-sans);
+  color: var(--lw-ink);
+  background: var(--lw-grey-bg);
+  font-feature-settings: "ss01", "cv11";
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+* { box-sizing: border-box; }
+button { font-family: inherit; }
+input, select, textarea { font-family: inherit; color: inherit; }
+
+/* Accent override when orange is active */
+body.accent-orange {
+  --cta-bg: var(--lw-orange);
+  --cta-bg-hover: var(--lw-orange-dark);
+  --cta-bg-press: #B85616;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: #d8d8d8; border-radius: 10px; border: 2px solid var(--lw-grey-bg); }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* Utilities */
+.num { font-variant-numeric: tabular-nums; }
+.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
