@@ -3,8 +3,10 @@ from datetime import datetime, timedelta, timezone
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.db import get_db
 
 bearer = HTTPBearer(auto_error=False)
 
@@ -36,19 +38,37 @@ def _require_token(creds: HTTPAuthorizationCredentials | None) -> dict:
     return payload
 
 
-def current_provider(creds: HTTPAuthorizationCredentials = Depends(bearer)) -> dict:
+def _check_active(payload: dict, db: Session) -> None:
+    """Reject tokens belonging to deactivated accounts.
+    Deferred import of Provider avoids a circular-import cycle at module load.
+    """
+    from app.models import Provider  # noqa: PLC0415
+    provider = db.get(Provider, payload.get("sub"))
+    if not provider or not provider.is_active:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Account is inactive")
+
+
+def current_provider(
+    creds: HTTPAuthorizationCredentials = Depends(bearer),
+    db: Session = Depends(get_db),
+) -> dict:
     payload = _require_token(creds)
     # Admins can call every provider endpoint (e.g. to look at a member on
     # someone else's behalf); everyone else must be an actual provider.
     if payload.get("role") not in ("provider", "admin"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Provider role required")
+    _check_active(payload, db)
     return payload
 
 
-def current_admin(creds: HTTPAuthorizationCredentials = Depends(bearer)) -> dict:
+def current_admin(
+    creds: HTTPAuthorizationCredentials = Depends(bearer),
+    db: Session = Depends(get_db),
+) -> dict:
     payload = _require_token(creds)
     if payload.get("role") != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin role required")
+    _check_active(payload, db)
     return payload
 
 

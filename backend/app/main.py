@@ -7,10 +7,13 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 from app.api import admin, auth, debug, lookup, medications, pharmacies, requests
 from app.core.config import settings
 from app.core.db import init_db
+from app.core.limiter import limiter
 
 # Unique per-build marker. Bump the string when you want the startup log
 # to make the running commit unmistakable.
@@ -37,12 +40,17 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     app = FastAPI(title=settings.app_name, lifespan=lifespan)
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
     origins = [o.strip() for o in (settings.cors_origins or "").split(",") if o.strip()]
+    # allow_credentials=True is incompatible with wildcard origins per the
+    # Fetch spec. Only enable it when explicit origins are configured.
+    is_wildcard = not origins or origins == ["*"]
     app.add_middleware(
         CORSMiddleware,
         allow_origins=origins or ["*"],
-        allow_credentials=True,
+        allow_credentials=not is_wildcard,
         allow_methods=["*"],
         allow_headers=["*"],
     )
@@ -53,18 +61,15 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(RequestValidationError)
     async def _log_validation_error(request: Request, exc: RequestValidationError):
-        try:
-            body_bytes = await request.body()
-            body_snippet = body_bytes.decode("utf-8")[:4000]
-        except Exception:
-            body_snippet = "(body unavailable)"
-        vlogger.warning("422 on %s %s · errors=%s · body=%s",
+        # Log only field locations and error types — never log values, which
+        # may contain PHI (member name, DOB, phone, diagnoses, etc.).
+        safe_errors = [{"loc": e.get("loc"), "type": e.get("type")} for e in exc.errors()]
+        vlogger.warning("422 on %s %s · fields=%s",
                         request.method, request.url.path,
-                        json.dumps(exc.errors(), default=str)[:1500],
-                        body_snippet)
+                        json.dumps(safe_errors, default=str))
         return JSONResponse(
             status_code=422,
-            content={"detail": exc.errors(), "received": body_snippet[:500]},
+            content={"detail": exc.errors()},
         )
 
     app.include_router(auth.router, prefix=settings.api_prefix)

@@ -21,9 +21,16 @@
 <body class="rxhub">
   <div id="rx-root"></div>
 
-  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
-  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
-  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+  <!--
+    SECURITY: All CDN scripts are pinned to exact versions.
+    SRI integrity hashes MUST be computed and added before production deploy:
+      curl -s <url> | openssl dgst -sha384 -binary | openssl base64 -A
+    Then set integrity="sha384-<hash>" on each tag.
+    Replace react.development.js with react.production.min.js for production.
+  -->
+  <script src="https://unpkg.com/lucide@0.474.0/dist/umd/lucide.min.js" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
   <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
 
   <script type="text/babel" src="src/rx/rxhub-ui.jsx"></script>

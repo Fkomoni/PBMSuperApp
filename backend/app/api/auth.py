@@ -1,11 +1,13 @@
+import hmac
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.limiter import limiter
 from app.core.db import get_db
 from app.core.passwords import hash_password, verify_password
 from app.core.security import create_access_token
@@ -72,7 +74,8 @@ def _mint(p: Provider) -> LoginOut:
 
 
 @router.post("/login", response_model=LoginOut)
-async def login(body: LoginIn, db: Session = Depends(get_db)):
+@limiter.limit("10/minute")
+async def login(request: Request, body: LoginIn, db: Session = Depends(get_db)):
     """Local-first provider login.
 
     1. If email+password match a local account (admin, PBM staff, or a
@@ -108,11 +111,18 @@ async def login(body: LoginIn, db: Session = Depends(get_db)):
 
 
 @router.post("/providers/register", response_model=ProviderOut, status_code=status.HTTP_201_CREATED)
-async def register(body: ProviderRegisterIn, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")
+async def register(request: Request, body: ProviderRegisterIn, db: Session = Depends(get_db)):
     """Create a local-only provider (e.g. PBM admin / break-glass). Real
-    providers should be authenticated via Prognosis, which auto-provisions a
-    row on first sign-in. Gate or disable this route before going live.
+    providers authenticate via Prognosis, which auto-provisions a row on
+    first sign-in. Disabled in production — use ADMIN_BOOTSTRAP_* env vars
+    or run seed_provider.py from the Render shell instead.
     """
+    if settings.environment == "production":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Self-registration is disabled — providers authenticate via Prognosis",
+        )
     existing = db.scalar(select(Provider).where(Provider.email == body.email.lower()))
     if existing:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
@@ -177,7 +187,7 @@ async def session_exchange(body: ExchangeIn, db: Session = Depends(get_db)):
     if body.email and body.parent_shared_secret:
         if not settings.embed_shared_secret:
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Embed handoff is disabled on this API")
-        if body.parent_shared_secret != settings.embed_shared_secret:
+        if not hmac.compare_digest(body.parent_shared_secret, settings.embed_shared_secret):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Bad handoff secret")
         p = db.scalar(select(Provider).where(Provider.email == body.email.lower()))
         if not p or not p.is_active:

@@ -70,15 +70,15 @@ class DrugOut(BaseModel):
 
 class RequestItemIn(BaseModel):
     drug_id: str | None = None
-    drug_name: str
-    generic: str | None = None
-    dosage: str | None = None
-    quantity: int | None = Field(default=None, ge=1)
-    duration_days: int | None = None
+    drug_name: str = Field(max_length=255)
+    generic: str | None = Field(default=None, max_length=255)
+    dosage: str | None = Field(default=None, max_length=255)
+    quantity: int | None = Field(default=None, ge=1, le=9999)
+    duration_days: int | None = Field(default=None, ge=1, le=3650)
     # Widened — drugs can be tagged hormonal/cancer/autoimmune/fertility/
     # telemedicine by the tariff; routing handles the split, so just accept
     # a free-form string here.
-    classification_hint: str | None = None
+    classification_hint: str | None = Field(default=None, max_length=64)
     unit_price: float | None = None
 
     @field_validator("drug_id", mode="before")
@@ -110,16 +110,16 @@ class MedicationRequestIn(BaseModel):
     delivery: DeliveryIn | None = None
     # Optional overrides from the provider form — used verbatim when
     # Prognosis returns no phone/email/state for the member.
-    member_phone: str | None = None
+    member_phone: str | None = Field(default=None, max_length=32)
     member_email: str | None = None
-    member_state: str | None = None
-    alt_phone: str | None = None
+    member_state: str | None = Field(default=None, max_length=64)
+    alt_phone: str | None = Field(default=None, max_length=32)
     urgency: Literal["routine", "urgent", "stat"] = "routine"
-    treating_doctor: str | None = None
+    treating_doctor: str | None = Field(default=None, max_length=255)
     # Provider-chosen partner pharmacy (WellaHealth pharmacyCode). If blank,
     # WellaHealth auto-assigns. Applies only when the request is routed there.
-    pharmacy_code: str | None = None
-    notes: str | None = None
+    pharmacy_code: str | None = Field(default=None, max_length=64)
+    notes: str | None = Field(default=None, max_length=1000)
 
     @field_validator("enrollee_id", mode="before")
     @classmethod

@@ -1,10 +1,15 @@
-"""Live diagnostics for the Prognosis integration."""
+"""Live diagnostics for the Prognosis integration.
+
+All endpoints require admin authentication — this router must never be
+accessible to unauthenticated users in any environment.
+"""
 from __future__ import annotations
 
 import os
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pydantic
 import httpx
 from fastapi import APIRouter, Depends, Query
 
@@ -12,7 +17,7 @@ from app.core.config import settings
 from app.core.security import current_admin
 from app.services import prognosis
 
-router = APIRouter(prefix="/_debug", tags=["debug"])
+router = APIRouter(prefix="/_debug", tags=["debug"], dependencies=[Depends(current_admin)])
 
 
 def _mask(value: str | None) -> str:
@@ -171,11 +176,13 @@ async def prognosis_token_claims():
 async def prognosis_send_test_email(
     to: str = Query(..., description="Recipient email address"),
 ):
-    """Fire the exact same SendEmailAlert payload you shared as a
-    known-working call, just with the recipient swapped. If this
-    still returns 'fail: Email sending failed', the issue is upstream
-    (Prognosis mail relay, whitelist, etc.) — not our wire format.
+    """Fire a test SendEmailAlert. Admin-only; disabled in production to
+    prevent accidental mail relay abuse.
     """
+    if settings.environment == "production":
+        from fastapi import HTTPException, status
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                            detail="Test email endpoint is disabled in production")
     try:
         resp = await prognosis.send_email(
             to=to,
@@ -185,82 +192,6 @@ async def prognosis_send_test_email(
         return {"ok": True, "prognosis_response": resp}
     except prognosis.PrognosisAuthError as e:
         return {"ok": False, "error": str(e), "cache": prognosis.token_cache_info()}
-
-
-@router.get("/prognosis/send-test-email-verbose")
-async def prognosis_send_test_email_verbose(
-    to: str = Query(..., description="Recipient email address"),
-    auth: str = Query(default="bearer", description="bearer | basic | none"),
-):
-    """Show exactly what we send to Prognosis SendEmailAlert + what we get
-    back. Tries different auth schemes so we can see which one the endpoint
-    actually expects.
-    """
-    import base64
-    import httpx
-
-    url = settings.prognosis_base_url.rstrip("/") + prognosis.EMAIL_ALERT_PATH
-    payload = {
-        "EmailAddress": to,
-        "CC": "",
-        "BCC": "",
-        "Subject": "Testint api for Email",
-        "MessageBody": "welcome and This is a test email",
-        "Attachments": None,
-        "Category": "",
-        "UserId": 0,
-        "ProviderId": 0,
-        "ServiceId": 0,
-        "Reference": "",
-        "TransactionType": "",
-    }
-
-    headers = {"Accept": "application/json", "Content-Type": "application/json"}
-    auth_repr = "(none)"
-    if auth == "bearer":
-        bearer = await prognosis._get_bearer()  # noqa: SLF001
-        headers["Authorization"] = f"Bearer {bearer}"
-        auth_repr = f"Bearer {bearer[:10]}…"
-    elif auth == "basic":
-        if not (settings.prognosis_username and settings.prognosis_password):
-            return {"ok": False, "error": "PROGNOSIS_USERNAME/PASSWORD not set"}
-        raw = f"{settings.prognosis_username}:{settings.prognosis_password}".encode()
-        headers["Authorization"] = "Basic " + base64.b64encode(raw).decode()
-        auth_repr = "Basic <user>:<pw>"
-
-    try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
-            resp = await client.post(url, json=payload, headers=headers)
-        body_text = resp.text
-        try:
-            body_parsed = resp.json()
-        except Exception:
-            body_parsed = None
-    except httpx.HTTPError as e:
-        return {"ok": False, "error": str(e), "url": url, "auth": auth_repr}
-
-    # Equivalent cURL so you can copy/run it yourself to compare
-    import json as _json
-    curl_parts = [f"curl -X POST '{url}'"]
-    for k, v in headers.items():
-        if k.lower() == "authorization":
-            curl_parts.append(f"-H '{k}: <redacted>'")
-        else:
-            curl_parts.append(f"-H '{k}: {v}'")
-    curl_parts.append(f"--data '{_json.dumps(payload)}'")
-
-    return {
-        "auth_mode":     auth,
-        "auth_sent":     auth_repr,
-        "request_url":   url,
-        "request_headers": {k: ("<redacted>" if k.lower() == "authorization" else v) for k, v in headers.items()},
-        "request_body":  payload,
-        "curl_equivalent": " \\\n  ".join(curl_parts),
-        "response_status": resp.status_code,
-        "response_headers": dict(resp.headers),
-        "response_body_text":   body_text[:2000],
-        "response_body_parsed": body_parsed,
-    }
 
 
 @router.get("/wellahealth/pharmacies")
@@ -357,66 +288,11 @@ async def whatsapp_config():
     }
 
 
-@router.get("/whatsapp/find-auth")
-async def whatsapp_find_auth(
-    api_key: str = Query(..., description="The raw API key value the bot expects"),
-    to: str = Query(default="+2348188626141"),
-):
-    """Try every common auth scheme with the given API key against the
-    configured bot path. Returns the status each returned so we can see
-    which header format the bot accepts without redeploying.
-    """
-    import httpx
-    from app.services import whatsapp as wa
-
-    url = settings.whatsapp_bot_url.rstrip("/") + (settings.whatsapp_send_path or "/send-message")
-    payload = wa._build_payload(to, "RxHub auth probe")  # noqa: SLF001
-
-    variants = [
-        {"X-API-Key": api_key},
-        {"Api-Key": api_key},
-        {"ApiKey":  api_key},
-        {"Authorization": api_key},
-        {"Authorization": f"Bearer {api_key}"},
-        {"Authorization": f"ApiKey {api_key}"},
-        {"Authorization": f"Token {api_key}"},
-        {"x-api-token": api_key},
-        {"api_key":      api_key},
-        {"token":        api_key},
-    ]
-
-    results = []
-    base_hdrs = {"Accept": "application/json", "Content-Type": "application/json"}
-    async with httpx.AsyncClient(timeout=httpx.Timeout(8.0)) as client:
-        for variant in variants:
-            headers = {**base_hdrs, **variant}
-            try:
-                resp = await client.post(url, json=payload, headers=headers)
-                body = resp.text[:300]
-                parsed = None
-                try:
-                    parsed = resp.json()
-                except Exception:
-                    pass
-            except httpx.HTTPError as e:
-                results.append({"header": list(variant.keys())[0], "value_prefix": list(variant.values())[0][:18] + "…", "error": str(e)})
-                continue
-            results.append({
-                "header":       list(variant.keys())[0],
-                "value_prefix": list(variant.values())[0][:18] + "…",
-                "status":       resp.status_code,
-                "body":         parsed or body,
-            })
-
-    # Sort: any 2xx first, then 401s, then others
-    results.sort(key=lambda r: (0 if r.get("status", 0) in range(200, 300) else 1 if r.get("status") == 401 else 2))
-    return {"url": url, "results": results}
-
 
 @router.get("/whatsapp/probe")
 async def whatsapp_probe(
     path: str = Query(default=None, description="Path to POST to; defaults to WHATSAPP_SEND_PATH"),
-    to: str = Query(default="+2348188626141"),
+    to: str = Query(..., description="Recipient phone number in E.164 format, e.g. +2348XXXXXXXXX"),
     message: str = Query(default="RxHub probe - ignore"),
 ):
     """POST a one-line test message to a path on the bot and return what
@@ -657,9 +533,8 @@ async def wellahealth_ping():
 
 @router.post("/prognosis/refresh-token")
 async def prognosis_refresh_token():
-    """Force-exchange the service creds for a new Bearer. Returns the
-    resulting cache state (token preview only). Public so you can prove
-    Prognosis accepts your service account before wiring in providers.
+    """Force-exchange the service creds for a new Bearer. Admin-only.
+    Returns the resulting cache state (token preview only).
     """
     try:
         bearer = await prognosis._get_bearer(force=True)  # noqa: SLF001
@@ -672,18 +547,19 @@ async def prognosis_refresh_token():
         return {"ok": False, "error": str(e)}
 
 
-@router.post("/prognosis/test-login", dependencies=[Depends(current_admin)])
-async def prognosis_test_login(
-    email: str = Query(...),
-    password: str = Query(...),
-):
-    """Live ProviderLogIn test — admin-only since it takes a real password.
+class _TestLoginBody(pydantic.BaseModel):
+    email: str
+    password: str
 
-    Returns the Prognosis response status + body verbatim so you can see
-    exactly what happens for any given provider.
+
+@router.post("/prognosis/test-login")
+async def prognosis_test_login(body: _TestLoginBody):
+    """Live ProviderLogIn test — admin-only (enforced at router level).
+    Credentials travel in the request body, not in the URL, to avoid
+    them appearing in server access logs.
     """
     try:
-        pp = await prognosis.provider_login(email, password)
+        pp = await prognosis.provider_login(body.email, body.password)
         return {"ok": True, "provider": pp.__dict__}
     except prognosis.PrognosisAuthError as e:
         return {"ok": False, "error": str(e), "cache": prognosis.token_cache_info()}
