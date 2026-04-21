@@ -81,6 +81,20 @@ class RequestItemIn(BaseModel):
     classification_hint: str | None = None
     unit_price: float | None = None
 
+    @field_validator("drug_id", mode="before")
+    @classmethod
+    def _coerce_drug_id(cls, v):
+        # Frontend catalog emits numeric row ids (e.g. 541) — coerce any
+        # int/float to string so Wella's fulfilment payload gets a clean
+        # identifier and pydantic stops rejecting the body.
+        if v is None or isinstance(v, str):
+            return v
+        if isinstance(v, bool):
+            return None
+        if isinstance(v, (int, float)):
+            return str(int(v)) if float(v).is_integer() else str(v)
+        return str(v)
+
 
 class DeliveryIn(BaseModel):
     formatted: str
