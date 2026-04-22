@@ -1,0 +1,79 @@
+================================================================
+ LEADWAY RXHUB — FRONTEND DEPLOYMENT PACKAGE
+ For: Azure Static Web Apps (or any static web host)
+================================================================
+
+WHAT'S IN THIS ZIP
+──────────────────
+  index.html                — the entry point
+  config.js                 — EDIT THIS — points at your backend URL
+  staticwebapp.config.json  — Azure Static Web Apps config
+  src/                      — React components (loaded at runtime)
+  styles/                   — CSS
+  assets/                   — Logos, images
+  vendor/                   — JavaScript libraries
+  DEPLOY.txt                — this file
+
+NOTE: This is already a "production build" in the Node.js sense —
+the frontend uses plain static HTML/CSS/JS with no webpack or npm
+build step. Just edit one file (config.js) and upload everything.
+
+================================================================
+ DEPLOYMENT — 2 STEPS
+================================================================
+
+STEP 1 — EDIT config.js
+───────────────────────
+Open config.js in a text editor. Replace this line:
+
+    window.__API_BASE__ = "https://REPLACE-WITH-YOUR-BACKEND-URL.azurewebsites.net/api/v1";
+
+with YOUR actual backend URL from Azure. Example:
+
+    window.__API_BASE__ = "https://rxhub-api-prod.azurewebsites.net/api/v1";
+
+Save the file. (Don't forget the "/api/v1" at the end!)
+
+
+STEP 2 — UPLOAD TO AZURE STATIC WEB APP
+────────────────────────────────────────
+
+Create the Static Web App in Azure portal first:
+  Create a resource → search "Static Web App" → Create
+  - Resource group: same as backend (rg-rxhub-prod)
+  - Name: rxhub-portal-prod
+  - Plan: Free
+  - Deployment source: "Other" (we upload manually)
+
+Once created, get the deployment token:
+  Your Static Web App → Manage deployment token → Copy
+
+Option A — SWA CLI (easiest):
+    npm install -g @azure/static-web-apps-cli
+    swa deploy . --deployment-token PASTE_TOKEN_HERE --env production
+
+Option B — Azure CLI:
+    az staticwebapp deploy \
+        --name rxhub-portal-prod \
+        --resource-group rg-rxhub-prod \
+        --source-location .
+
+Option C — FTPS (any static host):
+    Upload every file and folder in this package to the web root.
+    Any static web host works — IIS, nginx, Apache, Azure Blob
+    Storage with static website enabled, etc.
+
+
+STEP 3 — VERIFY
+───────────────
+Open the Static Web App URL (shown after deployment). You should
+see the Leadway RxHub login page. Sign in with the admin email
+and password your project owner configured in the backend's
+ADMIN_BOOTSTRAP_EMAIL / ADMIN_BOOTSTRAP_PASSWORD env vars.
+
+If the login screen loads but buttons do nothing, open the
+browser's Developer Tools (F12) → Network tab. Look for failing
+requests:
+  - 404 errors on /api/v1/* → config.js URL is wrong
+  - CORS errors → CORS_ORIGINS on backend doesn't include this
+    frontend URL. Fix it in the backend's Azure configuration.

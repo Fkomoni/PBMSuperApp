@@ -13,7 +13,10 @@ mkdir -p "$STAGE/frontend-azure-deploy"
 
 echo "➜ Staging backend…"
 cp -r "$REPO_ROOT/backend/." "$STAGE/backend-azure-deploy/"
-cp "$REPO_ROOT/backend/.env.example" "$STAGE/backend-azure-deploy/.env"
+# Rename .env.example → .env (the file the app actually loads) and
+# make sure only one of them ends up in the final zip.
+cp "$STAGE/backend-azure-deploy/.env.example" "$STAGE/backend-azure-deploy/.env"
+rm -f "$STAGE/backend-azure-deploy/.env.example"
 
 echo "➜ Staging frontend…"
 cp -r "$REPO_ROOT/frontend/." "$STAGE/frontend-azure-deploy/"
@@ -31,6 +34,10 @@ cat > "$STAGE/frontend-azure-deploy/config.js" <<'EOF'
 
 window.__API_BASE__ = "https://REPLACE-WITH-YOUR-BACKEND-URL.azurewebsites.net/api/v1";
 EOF
+
+# Remove any existing zips so `zip` doesn't append to them — otherwise
+# stale files (e.g. a .env.example we intentionally dropped) linger.
+rm -f "$OUT/backend-azure-deploy.zip" "$OUT/frontend-azure-deploy.zip"
 
 echo "➜ Zipping backend…"
 ( cd "$STAGE/backend-azure-deploy" && \
