@@ -52,7 +52,53 @@ def init_db() -> None:
 
     Base.metadata.create_all(bind=engine)
     _run_migrations()
+    _purge_forged_providers()
     _bootstrap_admin()
+
+
+def _purge_forged_providers() -> None:
+    """Remove provider rows created by the pre-fix Prognosis auth bug.
+
+    Before the 2026-04-24 auth hardening, a 200-OK failure payload from
+    Prognosis could make /login fabricate a provider from the submitted
+    email. Those rows share two tells: no prognosis_id AND no real
+    submissions tied to them. We delete only accounts that (a) are not
+    admin, (b) have no prognosis_id, (c) have never submitted a request,
+    AND (d) still hold the Prognosis-managed placeholder password hash.
+    All four conditions together make the row safe to drop.
+    """
+    from sqlalchemy import delete, select
+    from app.models import MedicationRequest, Provider
+
+    import logging as _l
+    log = _l.getLogger("rxhub.boot")
+    try:
+        with SessionLocal() as db:
+            # Find candidates — non-admin, no Prognosis id, placeholder pw
+            suspects = db.scalars(
+                select(Provider).where(
+                    Provider.role != "admin",
+                    (Provider.prognosis_id.is_(None)) | (Provider.prognosis_id == ""),
+                    Provider.password_hash.like("%!prognosis-managed!%"),
+                )
+            ).all()
+            if not suspects:
+                return
+            # Only delete ones that haven't submitted anything real
+            to_delete_ids: list[str] = []
+            for p in suspects:
+                used = db.scalar(
+                    select(MedicationRequest.id).where(MedicationRequest.provider_id == p.id).limit(1)
+                )
+                if not used:
+                    to_delete_ids.append(p.id)
+            if not to_delete_ids:
+                return
+            db.execute(delete(Provider).where(Provider.id.in_(to_delete_ids)))
+            db.commit()
+            log.warning("BOOT  purged %d forged provider row(s) from pre-fix auth bug", len(to_delete_ids))
+    except Exception as e:  # never fail boot over a cleanup glitch
+        log.warning("BOOT  forged-provider purge skipped: %s", e)
 
 
 def _bootstrap_admin() -> None:

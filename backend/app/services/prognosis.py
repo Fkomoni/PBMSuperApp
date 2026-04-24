@@ -256,6 +256,79 @@ def _is_credential_reject(status_code: int, data: Any) -> bool:
     return False
 
 
+def _looks_like_failure_payload(data: Any) -> str | None:
+    """Prognosis frequently returns HTTP 200 with a failure body — e.g. a
+    bare "fail: Invalid credentials" string, or {"status": false, ...}, or
+    {"Status": "error"}. Return the failure message if we detect any of
+    those shapes, else None.
+
+    Critical: this is what keeps a random email + random password from
+    silently authenticating as a brand-new "provider". Without this,
+    _provider_from_response fabricates a user from the fallback email
+    whenever the response has no identifying fields.
+    """
+    # Bare string result from `resp.json()` — "fail: …"
+    if isinstance(data, str):
+        low = data.lower()
+        if "fail" in low or "invalid" in low or "unauthor" in low:
+            return data.strip() or "Invalid email or password"
+        return None
+    if not isinstance(data, dict):
+        return None
+
+    # Our fallback parser wraps non-JSON text as {"raw": "..."}
+    raw = data.get("raw")
+    if isinstance(raw, str):
+        low = raw.lower()
+        if "fail" in low or "invalid" in low or "unauthor" in low:
+            return raw.strip() or "Invalid email or password"
+
+    # Common .NET / Node status shapes
+    status_field = data.get("status", data.get("Status"))
+    if status_field is False:
+        return (data.get("Message") or data.get("message") or "Invalid email or password")
+    if isinstance(status_field, str) and status_field.lower() in (
+        "fail", "failed", "error", "false", "unauthorized"
+    ):
+        return (data.get("Message") or data.get("message") or status_field)
+
+    # Explicit error message even with a truthy/absent status field
+    msg = str(data.get("message") or data.get("Message") or "").lower()
+    if msg and any(w in msg for w in (
+        "invalid", "incorrect", "wrong password", "not found",
+        "does not exist", "unauthor", "fail",
+    )):
+        return data.get("Message") or data.get("message") or "Invalid email or password"
+
+    return None
+
+
+def _has_real_provider_data(data: Any) -> bool:
+    """Only treat a 200-OK Prognosis response as a successful login when
+    it carries at least one hard identifier AND a name field. Prognosis
+    sometimes 200s with an empty dict on failure — accepting that would
+    let random credentials mint new "providers" keyed on their input
+    email (e.g. user 'ewrw2' materialising from 'ewrw2@anything.com').
+    """
+    if not isinstance(data, dict):
+        return False
+    # Unwrap envelopes first
+    for k in ("data", "Data", "provider", "Provider", "result", "Result"):
+        if isinstance(data.get(k), dict):
+            data = data[k]
+            break
+    has_id = any(data.get(k) for k in (
+        "ProviderId", "ProviderID", "provider_id", "Id", "id", "PrognosisId",
+        "ProviderCode", "UserId",
+    ))
+    has_name = any(data.get(k) for k in (
+        "FirstName", "firstname", "LastName", "lastname", "Surname",
+        "FullName", "Name", "ProviderName",
+    ))
+    has_email = any(data.get(k) for k in ("Email", "email"))
+    return (has_id or has_email) and has_name
+
+
 def _provider_from_response(data: dict, fallback_email: str) -> PrognosisProvider:
     # Unwrap envelopes
     if isinstance(data, dict):
@@ -292,11 +365,28 @@ async def provider_login(email: str, password: str) -> PrognosisProvider:
     snippet = str(data)[:400]
     logger.info("ProviderLogIn %s → HTTP %s · body=%s", _mask_email(email), status_code, snippet)
 
+    # 1. Explicit 4xx rejections (401/403 with/without a helpful message).
     if _is_credential_reject(status_code, data):
         msg = (isinstance(data, dict) and (data.get("message") or data.get("Message"))) or "Invalid email or password"
         raise PrognosisAuthError(str(msg))
     if status_code >= 400:
         raise PrognosisAuthError(f"Prognosis error ({status_code}): {snippet[:200]}")
+
+    # 2. Prognosis often 200-OKs a failure payload — catch those explicitly
+    #    so a random email+password cannot silently mint a new "provider".
+    failure_msg = _looks_like_failure_payload(data)
+    if failure_msg:
+        logger.info("ProviderLogIn %s rejected by Prognosis (200-OK failure body): %s",
+                    _mask_email(email), failure_msg)
+        raise PrognosisAuthError(failure_msg)
+
+    # 3. Even a 200 with no failure marker must carry real provider data —
+    #    if Prognosis returns an empty dict / placeholder, treat as reject.
+    if not _has_real_provider_data(data):
+        logger.warning("ProviderLogIn %s got HTTP %s with no identifying provider "
+                       "fields — treating as auth failure. Body=%s",
+                       _mask_email(email), status_code, snippet)
+        raise PrognosisAuthError("Invalid email or password")
 
     return _provider_from_response(data if isinstance(data, dict) else {}, fallback_email=email)
 
