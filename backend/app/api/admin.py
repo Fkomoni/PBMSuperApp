@@ -45,6 +45,7 @@ def _serialize_request(req: MedicationRequest, provider: Provider | None) -> dic
         "pharmacy_code": req.pharmacy_code,
         "external_ref": req.external_ref,
         "external_tracking_code": req.external_tracking_code,
+        "external_pickup_code": req.external_pickup_code,
         "external_status": req.external_status,
         "external_pharmacy_name": req.external_pharmacy_name,
         "external_synced_at": req.external_synced_at,
@@ -84,6 +85,7 @@ async def list_all_requests(
     channel: str | None = Query(default=None, description="wellahealth | leadway_pbm_whatsapp_1 | leadway_pbm_whatsapp_2"),
     classification: str | None = Query(default=None, description="acute | chronic | mixed"),
     status_: str | None = Query(default=None, alias="status"),
+    external_status: str | None = Query(default=None, description="WellaHealth-reported status, e.g. Pending | Assigned | Dispensed | Cancelled"),
     state: str | None = Query(default=None, description="Enrollee state, e.g. Lagos"),
     provider_id: str | None = Query(default=None),
     q: str | None = Query(default=None, max_length=200, description="Free-text match on request id / enrollee id / name"),
@@ -97,6 +99,9 @@ async def list_all_requests(
         stmt = stmt.where(MedicationRequest.classification == classification)
     if status_:
         stmt = stmt.where(MedicationRequest.status == status_)
+    if external_status:
+        # Case-insensitive match — Wella's casing varies (Dispensed vs dispensed)
+        stmt = stmt.where(func.lower(MedicationRequest.external_status) == external_status.lower())
     if state:
         stmt = stmt.where(MedicationRequest.enrollee_state == state)
     if provider_id:
@@ -189,12 +194,24 @@ async def summary(
         .order_by(func.count(MedicationRequest.id).desc())
     )
 
+    # WellaHealth-reported status — independent of our internal `status`
+    # (submitted, dispatched, etc.). Powers the "pending / dispensed /
+    # cancelled" report the admin runs on fulfilment progress.
+    by_external_status = _count(
+        select(MedicationRequest.external_status, func.count(MedicationRequest.id))
+        .where(MedicationRequest.created_at >= since)
+        .where(MedicationRequest.channel == "wellahealth")
+        .group_by(MedicationRequest.external_status)
+        .order_by(func.count(MedicationRequest.id).desc())
+    )
+
     return {
         "window_days": days,
         "total": total,
         "by_channel": by_channel,
         "by_classification": by_classification,
         "by_status": by_status,
+        "by_external_status": by_external_status,
         "by_state": by_state,
     }
 
@@ -233,11 +250,27 @@ async def refresh_external_status(
     new_status = str(row.get("status") or row.get("fulfilmentStatus") or row.get("Status") or "").strip() or None
     pharmacy_name = row.get("pharmacyName") or row.get("PharmacyName") or req.external_pharmacy_name
     tracking_code = row.get("trackingCode") or row.get("TrackingCode") or req.external_tracking_code
+    # WellaHealth's pickup/OTP field name varies across partner responses —
+    # accept the common spellings and only keep digits (it's always an 8-digit
+    # numeric OTP, e.g. "70212673").
+    pickup_raw = (
+        row.get("pickupCode") or row.get("PickupCode")
+        or row.get("pickUpCode") or row.get("PickUpCode")
+        or row.get("otp") or row.get("Otp") or row.get("OTP")
+        or row.get("otpCode") or row.get("OtpCode") or row.get("OTPCode")
+        or row.get("collectionCode") or row.get("CollectionCode")
+    )
+    pickup_code = None
+    if pickup_raw is not None:
+        digits = "".join(ch for ch in str(pickup_raw) if ch.isdigit())
+        pickup_code = digits or str(pickup_raw).strip() or None
 
     changed = new_status and new_status != req.external_status
     req.external_status = new_status or req.external_status
     req.external_pharmacy_name = pharmacy_name
     req.external_tracking_code = tracking_code
+    if pickup_code:
+        req.external_pickup_code = pickup_code
     req.external_synced_at = datetime.now(timezone.utc)
 
     if changed:
@@ -257,6 +290,7 @@ async def refresh_external_status(
         "request_id": req.id,
         "external_status": req.external_status,
         "external_tracking_code": req.external_tracking_code,
+        "external_pickup_code": req.external_pickup_code,
         "external_pharmacy_name": req.external_pharmacy_name,
         "external_synced_at": req.external_synced_at,
     }

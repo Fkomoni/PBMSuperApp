@@ -142,6 +142,7 @@ def _run_migrations() -> None:
             ("pharmacy_code",            "VARCHAR(64)"),
             ("external_ref",             "VARCHAR(64)"),
             ("external_tracking_code",   "VARCHAR(64)"),
+            ("external_pickup_code",     "VARCHAR(32)"),
             ("external_status",          "VARCHAR(32)"),
             ("external_pharmacy_name",   "VARCHAR(255)"),
             ("external_synced_at",       "TIMESTAMP WITH TIME ZONE"),

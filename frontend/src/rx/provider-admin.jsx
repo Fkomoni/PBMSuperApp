@@ -14,6 +14,33 @@ function channelPill(ch) {
   return <RxBadge kind="blue">{ch}</RxBadge>;
 }
 
+// Map a WellaHealth-reported status string to a badge colour family.
+// Matches case-insensitively and covers the common partner vocabulary —
+// everything unrecognised falls back to a neutral blue.
+function extStatusKind(s) {
+  const k = (s || "").toLowerCase();
+  if (!k) return "grey";
+  if (k.includes("cancel") || k.includes("reject") || k.includes("fail")) return "red";
+  if (k.includes("deliver") || k.includes("complet") || k.includes("dispens")) return "green";
+  if (k.includes("assigned") || k.includes("process") || k.includes("transit") || k.includes("out")) return "orange";
+  if (k.includes("pending") || k.includes("submit")) return "blue";
+  return "blue";
+}
+
+// Pretty labels for the built-in WellaHealth status report shortcuts.
+// These map to the backend's `external_status` filter, matched case-
+// insensitively so "Dispensed" / "dispensed" / "DISPENSED" all work.
+const EXT_STATUS_SHORTCUTS = [
+  { v: "",            l: "Any" },
+  { v: "Pending",     l: "Pending" },
+  { v: "Assigned",    l: "Assigned" },
+  { v: "Processing",  l: "Processing" },
+  { v: "Dispensed",   l: "Dispensed" },
+  { v: "Delivered",   l: "Delivered" },
+  { v: "Completed",   l: "Completed" },
+  { v: "Cancelled",   l: "Cancelled" },
+];
+
 function AdminConsole() {
   const [summary, setSummary] = rxS(null);
   const [requests, setRequests] = rxS(null);
@@ -22,6 +49,7 @@ function AdminConsole() {
 
   const [channel, setChannel] = rxS("");
   const [classification, setClassification] = rxS("");
+  const [extStatus, setExtStatus] = rxS("");
   const [state, setState] = rxS("");
   const [q, setQ] = rxS("");
   const [picked, setPicked] = rxS(null);
@@ -36,6 +64,7 @@ function AdminConsole() {
     const params = { limit: 100 };
     if (channel) params.channel = channel;
     if (classification) params.classification = classification;
+    if (extStatus) params.external_status = extStatus;
     if (state) params.state = state;
     if (q) params.q = q;
     providerApi.admin.listRequests(params)
@@ -43,8 +72,48 @@ function AdminConsole() {
       .catch(e => setErr(e.message));
   };
 
+  // Download the currently-filtered list as a CSV the admin can open in
+  // Excel. Runs client-side off the already-loaded `requests` array so
+  // it's instant and matches exactly what the admin sees on screen.
+  const exportCsv = () => {
+    const rows = requests || [];
+    if (!rows.length) return;
+    const cols = [
+      ["request_id",          r => r.id],
+      ["ref_code",            r => r.ref_code || ""],
+      ["member_id",           r => r.enrollee_id || ""],
+      ["member_name",         r => r.enrollee_name || ""],
+      ["provider",            r => r.provider_name || ""],
+      ["facility",            r => r.provider_facility || ""],
+      ["classification",      r => r.classification || ""],
+      ["channel",             r => r.channel || ""],
+      ["state",               r => r.enrollee_state || ""],
+      ["submitted_at",        r => r.created_at || ""],
+      ["status",              r => r.status || ""],
+      ["wella_status",        r => r.external_status || ""],
+      ["tracking_code",       r => r.external_tracking_code || ""],
+      ["pickup_code",         r => r.external_pickup_code || ""],
+      ["pharmacy",            r => r.external_pharmacy_name || ""],
+      ["last_synced_at",      r => r.external_synced_at || ""],
+    ];
+    const esc = v => {
+      const s = String(v ?? "");
+      return /[,"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const header = cols.map(c => c[0]).join(",");
+    const body = rows.map(r => cols.map(c => esc(c[1](r))).join(",")).join("\n");
+    const blob = new Blob([header + "\n" + body + "\n"], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 16);
+    a.href = url;
+    a.download = `rxhub-requests-${extStatus || channel || "all"}-${stamp}.csv`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  };
+
   rxE(() => { reloadSummary(); }, [days]);
-  rxE(() => { reloadList(); }, [channel, classification, state]);
+  rxE(() => { reloadList(); }, [channel, classification, extStatus, state]);
 
   const byChannel = (summary?.by_channel || []).reduce((acc, r) => { acc[r.key] = r.count; return acc; }, {});
   const wellaCount = byChannel["wellahealth"] || 0;
@@ -126,6 +195,33 @@ function AdminConsole() {
         </div>
       </div>
 
+      {/* WellaHealth status report — quick buttons + CSV export */}
+      <div className="mcard" style={{ marginBottom: 18, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", flex: 1 }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: "var(--rx-muted)", alignSelf: "center", marginRight: 4 }}>
+            Fulfilment status:
+          </span>
+          {EXT_STATUS_SHORTCUTS.map(s => (
+            <button key={s.v || "any"}
+              className={`rx-btn rx-btn--sm ${extStatus === s.v ? "" : "rx-btn--ghost"}`}
+              style={{ width: "auto" }}
+              onClick={() => setExtStatus(s.v)}>
+              {s.l}
+              {summary?.by_external_status?.find(r => (r.key || "").toLowerCase() === s.v.toLowerCase()) && (
+                <span className="num" style={{ marginLeft: 6, opacity: .7 }}>
+                  {summary.by_external_status.find(r => (r.key || "").toLowerCase() === s.v.toLowerCase()).count}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+        <button className="rx-btn rx-btn--sm rx-btn--ghost" style={{ width: "auto" }}
+          onClick={exportCsv} disabled={!requests?.length}
+          title="Export the current filtered list as CSV">
+          <RxIcon name="download" size={14} /> Export CSV
+        </button>
+      </div>
+
       {/* Table */}
       <div className="mcard" style={{ padding: 0, overflow: "hidden" }}>
         {err && <div style={{ padding: 20 }}><RxBanner kind="warn" icon="alert-triangle">{err}</RxBanner></div>}
@@ -142,7 +238,8 @@ function AdminConsole() {
                 <th>Provider</th>
                 <th>Type</th>
                 <th>Channel</th>
-                <th>State</th>
+                <th>Tracking / OTP</th>
+                <th>Fulfilment</th>
                 <th>Submitted</th>
                 <th>Status</th>
                 <th></th>
@@ -162,7 +259,21 @@ function AdminConsole() {
                   </td>
                   <td>{r.classification ? <RxBadge kind={r.classification === "chronic" ? "purple" : r.classification === "acute" ? "orange" : "blue"}>{r.classification}</RxBadge> : "—"}</td>
                   <td>{channelPill(r.channel)}</td>
-                  <td style={{ fontSize: 12.5, color: "var(--rx-muted)" }}>{r.enrollee_state || "—"}</td>
+                  <td>
+                    {r.external_tracking_code
+                      ? <div className="num" style={{ fontSize: 12, fontWeight: 600 }}>{r.external_tracking_code}</div>
+                      : <div style={{ fontSize: 12, color: "var(--rx-muted)" }}>—</div>}
+                    {r.external_pickup_code && (
+                      <div className="num" style={{ fontSize: 11.5, color: "var(--rx-muted)", marginTop: 2 }}>
+                        OTP <strong>{r.external_pickup_code}</strong>
+                      </div>
+                    )}
+                  </td>
+                  <td style={{ fontSize: 12.5 }}>
+                    {r.external_status
+                      ? <RxBadge kind={extStatusKind(r.external_status)}>{r.external_status}</RxBadge>
+                      : <span style={{ color: "var(--rx-muted)" }}>—</span>}
+                  </td>
                   <td style={{ fontSize: 12.5, color: "var(--rx-muted)" }}>{fmtDateTime(r.created_at)}</td>
                   <td><StatusBadge status={r.status} /></td>
                   <td style={{ textAlign: "right" }}><RxIcon name="chevron-right" size={16} /></td>
@@ -266,17 +377,50 @@ function AdminRequestDrawer({ id, onClose }) {
                     </button>
                   </div>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10 }}>
-                    {[
-                      ["Status", data.external_status || (data.external_ref ? "pending" : "not dispatched")],
-                      ["Tracking code", data.external_tracking_code || "—"],
-                      ["Pharmacy", data.external_pharmacy_name || "auto-assigned by WellaHealth"],
-                      ["Last synced", data.external_synced_at ? fmtDateTime(data.external_synced_at) : "—"],
-                    ].map(([k, v]) => (
-                      <div key={k} className="med__field">
-                        <div className="med__field__k">{k}</div>
-                        <div className="med__field__v">{v}</div>
+                    <div className="med__field">
+                      <div className="med__field__k">Fulfilment status</div>
+                      <div className="med__field__v">
+                        {data.external_status
+                          ? <RxBadge kind={extStatusKind(data.external_status)}>{data.external_status}</RxBadge>
+                          : (data.external_ref ? "pending" : "not dispatched")}
                       </div>
-                    ))}
+                    </div>
+                    <div className="med__field">
+                      <div className="med__field__k">Pharmacy</div>
+                      <div className="med__field__v">{data.external_pharmacy_name || "auto-assigned by WellaHealth"}</div>
+                    </div>
+                    <div className="med__field">
+                      <div className="med__field__k">Tracking code</div>
+                      <div className="med__field__v num" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span>{data.external_tracking_code || "—"}</span>
+                        {data.external_tracking_code && (
+                          <button type="button" className="rx-btn rx-btn--ghost rx-btn--sm"
+                            style={{ width: "auto", padding: "2px 8px" }}
+                            onClick={() => { navigator.clipboard?.writeText(data.external_tracking_code); }}>
+                            <RxIcon name="copy" size={11} /> copy
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <div className="med__field">
+                      <div className="med__field__k">Pickup code (OTP)</div>
+                      <div className="med__field__v num" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontWeight: 700, letterSpacing: ".08em" }}>
+                          {data.external_pickup_code || "—"}
+                        </span>
+                        {data.external_pickup_code && (
+                          <button type="button" className="rx-btn rx-btn--ghost rx-btn--sm"
+                            style={{ width: "auto", padding: "2px 8px" }}
+                            onClick={() => { navigator.clipboard?.writeText(data.external_pickup_code); }}>
+                            <RxIcon name="copy" size={11} /> copy
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <div className="med__field" style={{ gridColumn: "1 / -1" }}>
+                      <div className="med__field__k">Last synced</div>
+                      <div className="med__field__v">{data.external_synced_at ? fmtDateTime(data.external_synced_at) : "—"}</div>
+                    </div>
                   </div>
                   {refreshMsg && (
                     <div style={{ marginTop: 10, fontSize: 12, color: "var(--rx-muted)" }}>{refreshMsg}</div>

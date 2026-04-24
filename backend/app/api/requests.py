@@ -227,15 +227,30 @@ async def submit(
             wella_obj = wella_obj or {}
             ref = wella_obj.get("enrollmentId") or wella_obj.get("id") or wella_obj.get("fulfilmentId")
             tracking_code = wella_obj.get("trackingCode") or f"WTR-{(req.id or '')[:10]}"
+            # 8-digit numeric OTP the member gives the pharmacy at pickup.
+            # Field name varies across partner payload shapes.
+            pickup_raw = (
+                wella_obj.get("pickupCode") or wella_obj.get("PickupCode")
+                or wella_obj.get("pickUpCode") or wella_obj.get("PickUpCode")
+                or wella_obj.get("otp") or wella_obj.get("Otp") or wella_obj.get("OTP")
+                or wella_obj.get("otpCode") or wella_obj.get("OtpCode")
+                or wella_obj.get("collectionCode") or wella_obj.get("CollectionCode")
+            )
+            pickup_code = None
+            if pickup_raw is not None:
+                _digits = "".join(ch for ch in str(pickup_raw) if ch.isdigit())
+                pickup_code = _digits or str(pickup_raw).strip() or None
             wella_meta = {
                 "wella_pharmacy_code": wella_obj.get("pharmacyCode"),
                 "wella_pharmacy_name": wella_obj.get("pharmacyName"),
                 "wella_tracking_code": tracking_code,
+                "wella_pickup_code": pickup_code,
             }
             # Persist fulfilment metadata so admin can refresh status later
             # without having to re-scan the full Wella fulfilments list.
             req.external_ref = str(ref) if ref else None
             req.external_tracking_code = str(tracking_code) if tracking_code else None
+            req.external_pickup_code = pickup_code
             req.external_pharmacy_name = wella_obj.get("pharmacyName")
             req.external_status = wella_obj.get("status") or "dispatched"
             req.external_synced_at = datetime.now(timezone.utc)

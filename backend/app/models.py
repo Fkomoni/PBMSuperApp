@@ -76,7 +76,8 @@ class MedicationRequest(Base):
     # console can refresh status via GET /public/v1/Fulfilments instead of
     # guessing from event timeline.
     external_ref: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)  # enrollmentId / fulfilmentId
-    external_tracking_code: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)  # trackingCode
+    external_tracking_code: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)  # trackingCode (e.g. WTR-5864CE2DA0)
+    external_pickup_code: Mapped[str | None] = mapped_column(String(32), nullable=True)  # 8-digit OTP shown to member at pickup
     external_status: Mapped[str | None] = mapped_column(String(32), nullable=True)  # last status seen from Wella
     external_pharmacy_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     external_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
