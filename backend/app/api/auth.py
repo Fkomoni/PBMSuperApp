@@ -2,11 +2,12 @@ import hmac
 import logging
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core import tickets
 from app.core.config import settings
 from app.core.db import get_db
 from app.core.limiter import limiter
@@ -263,6 +264,131 @@ async def session_exchange(request: Request, body: ExchangeIn, db: Session = Dep
         return _mint(p)
 
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Provide prognosis_token or (email + parent_shared_secret)")
+
+
+# ==============================================================
+# Embed-login + ticket redemption
+# ==============================================================
+#
+# Parent-app flow:
+#   1. Parent POSTs {email, password} to /auth/embed-login with header
+#      X-Embed-Secret: <shared secret>. We authenticate the user (local
+#      DB first, then Prognosis), mint a JWT, and stash it behind a
+#      one-time opaque ticket (60-second TTL).
+#   2. We return {portal_url} — the front-end URL plus ?ticket=<opaque>.
+#   3. Parent opens that URL in an iframe.
+#   4. Front-end reads ?ticket=, POSTs it to /auth/redeem-ticket, gets
+#      back the real JWT + provider info, stores it in sessionStorage,
+#      and scrubs the ticket from the URL.
+#
+# The JWT itself never travels in a URL, so it's not exposed to browser
+# history, referrer headers, or server access logs. The ticket is valid
+# for exactly one redemption within 60 seconds — useless if captured.
+
+
+class EmbedLoginIn(BaseModel):
+    email: str
+    password: str
+
+
+class EmbedLoginOut(BaseModel):
+    portal_url: str
+    ticket_expires_in: int
+
+
+class RedeemTicketIn(BaseModel):
+    ticket: str
+
+
+@router.post("/auth/embed-login", response_model=EmbedLoginOut)
+@limiter.limit("30/minute")
+async def embed_login(
+    request: Request,
+    body: EmbedLoginIn,
+    x_embed_secret: str | None = Header(default=None, alias="X-Embed-Secret"),
+    db: Session = Depends(get_db),
+):
+    """Parent-app entry point. Validates the partner secret + the user
+    credentials, then returns a one-time ticket URL for the iframe.
+    """
+    if not settings.embed_shared_secret:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Embed login is disabled on this API")
+    if not settings.frontend_base_url:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="FRONTEND_BASE_URL is not configured")
+    if not x_embed_secret or not hmac.compare_digest(
+        x_embed_secret.encode(), settings.embed_shared_secret.encode()
+    ):
+        audit.warning("event=embed_login result=bad_secret actor=%s", _mask_email(body.email))
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid embed secret")
+
+    email = body.email.strip().lower()
+    if _is_locked(email, db):
+        audit.warning("event=embed_login result=locked actor=%s", _mask_email(email))
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
+
+    # 1. Local DB — covers cached providers. We intentionally do NOT
+    #    allow admin accounts through this path; admins use the direct
+    #    login page.
+    p = db.scalar(select(Provider).where(Provider.email == email))
+    if p and p.is_active and verify_password(body.password, p.password_hash):
+        if (p.role or "provider") == "admin":
+            audit.warning("event=embed_login result=admin_blocked actor=%s", _mask_email(email))
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin accounts must sign in directly, not via embed")
+        _clear_failures(email, db)
+        login_out = _mint(p)
+    else:
+        # 2. Prognosis
+        if not settings.prognosis_base_url:
+            _record_failure(email, db)
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
+        try:
+            pp = await prognosis.provider_login(email, body.password)
+        except PrognosisAuthError:
+            _record_failure(email, db)
+            audit.warning("event=embed_login result=fail actor=%s", _mask_email(email))
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
+        p = _upsert_from_prognosis(db, pp)
+        _clear_failures(email, db)
+        login_out = _mint(p)
+
+    session = {
+        "role": p.role or "provider",
+        "email": p.email,
+        "name": p.name,
+        "provider_id": p.id,
+        "facility": p.facility,
+    }
+    ticket, ttl = tickets.issue(login_out.token, session)
+
+    portal_url = f"{settings.frontend_base_url.rstrip('/')}/?ticket={ticket}"
+    audit.info("event=embed_login result=ok actor=%s ticket_issued=1", _mask_email(email))
+    return EmbedLoginOut(portal_url=portal_url, ticket_expires_in=ttl)
+
+
+@router.post("/auth/redeem-ticket", response_model=LoginOut)
+@limiter.limit("60/minute")
+async def redeem_ticket(request: Request, body: RedeemTicketIn):
+    """Front-end exchanges the one-time ticket for the real JWT. This
+    endpoint is deliberately open (no secret) — possessing an unredeemed
+    ticket IS the authorization, and each ticket is valid once.
+    """
+    entry = tickets.redeem(body.ticket)
+    if entry is None:
+        audit.warning("event=redeem_ticket result=invalid")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Ticket is invalid, already used, or expired")
+
+    audit.info("event=redeem_ticket result=ok actor=%s", _mask_email(entry.session.get("email", "?")))
+    return LoginOut(
+        token=entry.jwt,
+        expires_in=settings.jwt_ttl_hours * 3600,
+        provider=ProviderOut(
+            provider_id=entry.session.get("provider_id", ""),
+            name=entry.session.get("name", ""),
+            email=entry.session.get("email", ""),
+            facility=entry.session.get("facility"),
+            role=entry.session.get("role", "provider"),
+        ),
+    )
 
 
 # ── Logout ────────────────────────────────────────────────────────────────────

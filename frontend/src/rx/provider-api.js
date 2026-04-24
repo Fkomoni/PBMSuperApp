@@ -75,6 +75,16 @@ const api = {
     return data;
   },
 
+  // Redeem a one-time embed-login ticket for the real JWT. The ticket
+  // arrives as a ?ticket= URL param from the parent app's iframe src.
+  // Single-use: a second redemption of the same ticket 401s.
+  redeemTicket: async (ticket) => {
+    const data = await request("/auth/redeem-ticket", { method: "POST", body: { ticket } });
+    if (data && data.token) setToken(data.token);
+    if (data && data.provider) setSession({ role: data.provider.role || "provider", ...data.provider });
+    return data;
+  },
+
   lookupEnrollee: (enrolleeId) => request("/lookup/enrollee", { query: { enrollee_id: enrolleeId } }),
   lookupDiagnoses: (q) => request("/lookup/diagnoses", { query: { q } }),
   searchMedications: (q) => request("/medications/search", { query: { q } }),

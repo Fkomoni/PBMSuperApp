@@ -105,6 +105,10 @@ class Settings(BaseSettings):
 
     # ── Parent-app embed handoff ───────────────────────────────────────
     embed_shared_secret: str | None = None
+    # The public URL of the portal front-end — used by /auth/embed-login
+    # to build the `portal_url` it hands back to the parent app. Example:
+    # https://rxhub.leadwayhealth.com  (no trailing slash)
+    frontend_base_url: str = ""
 
     # ── Admin bootstrap ────────────────────────────────────────────────
     # Set these two env vars on Render to auto-create (or promote) an
