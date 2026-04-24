@@ -24,15 +24,19 @@ cat > "$STAGE/frontend-azure-deploy/config.js" <<'EOF'
 // ═════════════════════════════════════════════════════════════════════
 //  EDIT THIS FILE BEFORE DEPLOYMENT
 // ═════════════════════════════════════════════════════════════════════
-//  Replace the URL below with YOUR backend's Azure App Service URL,
-//  with "/api/v1" appended at the end. Example:
-//
-//    window.__API_BASE__ = "https://rxhub-api-prod.azurewebsites.net/api/v1";
-//
-//  This is the ONLY file you need to edit in the frontend package.
-// ═════════════════════════════════════════════════════════════════════
 
+// 1. Backend API URL — with "/api/v1" at the end.
+//    Example: "https://rxhub-api-prod.azurewebsites.net/api/v1"
 window.__API_BASE__ = "https://REPLACE-WITH-YOUR-BACKEND-URL.azurewebsites.net/api/v1";
+
+// 2. Embed-only mode. MUST stay true in production — the portal is
+//    reachable only from the Leadway provider dashboard (via a one-time
+//    ticket). Direct visitors land on a branded "open from your
+//    dashboard" block. Admins can still sign in directly by appending
+//    ?admin=1 to the URL.
+//    Set to false ONLY for local development or staging where direct
+//    provider login is acceptable.
+window.__REQUIRE_EMBED__ = true;
 EOF
 
 # Remove any existing zips so `zip` doesn't append to them — otherwise
