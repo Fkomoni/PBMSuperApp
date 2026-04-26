@@ -162,15 +162,33 @@ function RecordDetail({ record, onEdit, onClose }) {
     const notesHtml = record.notes
       ? `<p style="margin-top:16px;font-size:13px;color:#555"><strong>Notes:</strong> ${esc(record.notes)}</p>`
       : ''
+    const logoUrl = window.location.origin + '/leadway-logo.jpg'
     const html = `<!DOCTYPE html><html><head><title>Clinic Supply ${esc(record.id)}</title><style>
       body{font-family:sans-serif;padding:32px;color:#1a1a1a}
+      .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;padding-bottom:16px;border-bottom:2px solid #e0e0e0}
+      .header-right{text-align:right}
+      .doc-title{font-size:22px;font-weight:900;color:#1a1a1a;letter-spacing:.04em;margin:0}
+      .company-name{font-size:13px;font-weight:900;letter-spacing:.05em;color:#1a1a1a;margin:6px 0 2px}
+      .company-sub{font-size:11px;color:#777}
       h2{margin:0 0 4px}table{width:100%;border-collapse:collapse;margin-top:16px}
       th{background:#f5f5f5;padding:8px 10px;text-align:left;font-size:12px;text-transform:uppercase}
       td{padding:8px 10px;border-bottom:1px solid #eee;font-size:13px}
       .total{font-size:16px;font-weight:800;margin-top:16px;text-align:right}
     </style></head><body>
-      <h2>Clinic Supply — ${esc(record.id)}</h2>
-      <p style="color:#666;margin:0">${esc(record.clinic)} · ${esc(record.contact)} · ${esc(fmtDate(record.date))}</p>
+      <div class="header">
+        <div>
+          <img src="${logoUrl}" alt="Leadway Health HMO" style="height:64px;object-fit:contain;display:block;margin-bottom:6px" />
+          <div class="company-name">LEADWAY HEALTH HMO</div>
+          <div class="company-sub">Pharmacy Benefit Management</div>
+        </div>
+        <div class="header-right">
+          <div class="doc-title">CLINIC SUPPLY LIST</div>
+          <div style="font-family:monospace;font-size:14px;color:#cc0000;margin-top:4px">${esc(record.id)}</div>
+          <div style="font-size:12px;color:#777;margin-top:2px">Date: ${esc(fmtDate(record.date))}</div>
+        </div>
+      </div>
+      <p style="color:#666;margin:0 0 4px"><strong>${esc(record.clinic)}</strong></p>
+      <p style="color:#666;margin:0">${esc(record.contact)} · ${esc(fmtDate(record.date))}</p>
       <table><thead><tr><th>Item</th><th>Qty</th><th>Unit</th><th>Unit cost</th><th>Total</th></tr></thead><tbody>${rows}</tbody></table>
       ${notesHtml}
       <div class="total">Grand total: ₦${subtotal.toLocaleString()}</div>

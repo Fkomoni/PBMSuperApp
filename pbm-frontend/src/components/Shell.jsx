@@ -39,10 +39,8 @@ export function Sidebar({ active, onNavigate, role }) {
   return (
     <aside className="side">
       <div className="side__brand">
-        <div style={{ width: 36, height: 36, borderRadius: 8, background: 'var(--lw-red)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <Icon name="shield-check" size={20} style={{ color: '#fff' }} />
-        </div>
-        <div className="wm">
+        <img src="/leadway-logo.jpg" alt="Leadway Health HMO" style={{ height: 48, maxWidth: '100%', objectFit: 'contain', display: 'block' }} />
+        <div className="wm" style={{ display: 'none' }}>
           <div className="w1">LEADWAY</div>
           <div className="w2">Health<span className="hmo">PBM</span></div>
         </div>

@@ -29,15 +29,10 @@ function InvoicePrint({ bill, onClose }) {
         {/* Invoice header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 28 }}>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-              <div style={{ width: 32, height: 32, borderRadius: 8, background: 'var(--lw-red)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Icon name="shield-check" size={18} style={{ color: '#fff' }} />
-              </div>
-              <div>
-                <div style={{ fontWeight: 900, fontSize: 14, letterSpacing: '.06em', color: 'var(--lw-charcoal)' }}>LEADWAY HEALTH</div>
-                <div style={{ fontSize: 11, color: 'var(--lw-muted)' }}>Pharmacy Benefit Management</div>
-              </div>
+            <div style={{ marginBottom: 8 }}>
+              <img src="/leadway-logo.jpg" alt="Leadway Health HMO" style={{ height: 64, objectFit: 'contain', display: 'block' }} />
             </div>
+            <div style={{ fontWeight: 900, fontSize: 13, letterSpacing: '.05em', color: 'var(--lw-charcoal)', marginBottom: 4 }}>LEADWAY HEALTH HMO</div>
             <div style={{ fontSize: 11.5, color: 'var(--lw-muted)', lineHeight: 1.6 }}>
               Plot 1235, Bishop Aboyade Cole Street<br />Victoria Island, Lagos. RC 123456
             </div>
