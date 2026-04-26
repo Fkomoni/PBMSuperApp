@@ -9,9 +9,10 @@
     "preview": "vite preview --port 5174"
   },
   "dependencies": {
+    "lucide-react": "^0.469.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "lucide-react": "^0.469.0"
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",

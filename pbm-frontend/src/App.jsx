@@ -25,6 +25,9 @@ const BrandWarnings  = lazy(() => import('./pages/BrandWarnings'))
 const Reports        = lazy(() => import('./pages/Reports'))
 const MemberApp      = lazy(() => import('./pages/MemberApp'))
 const MemberRequests = lazy(() => import('./pages/MemberRequests'))
+const BulkUpload     = lazy(() => import('./pages/BulkUpload'))
+const ExclusionBills = lazy(() => import('./pages/ExclusionBills'))
+const ClinicSupply   = lazy(() => import('./pages/ClinicSupply'))
 
 function PageLoader() {
   return (
@@ -86,6 +89,9 @@ export default function App() {
           {page === 'brand-warnings'    && <BrandWarnings {...pageProps} />}
           {page === 'reports'           && <Reports {...pageProps} />}
           {page === 'member-app'        && <MemberApp {...pageProps} />}
+          {page === 'bulk-upload'       && <BulkUpload {...pageProps} />}
+          {page === 'exclusion-bills'   && <ExclusionBills {...pageProps} />}
+          {page === 'clinic-supply'     && <ClinicSupply {...pageProps} />}
         </Suspense>
       </div>
       {toast && <Toast message={toast.msg} kind={toast.kind} onClose={() => setToast(null)} />}
