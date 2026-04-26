@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { API_BASE } from '../lib/api'
 import { Icon, Avatar, Pill, fmtDate, daysBetween } from '../components/ui'
 
 const TODAY = new Date('2026-04-18')
@@ -55,8 +56,8 @@ export default function RefillPlanner({ setToast }) {
   useEffect(() => {
     const token = localStorage.getItem('pbm_token')
     Promise.all([
-      fetch('/api/enrollees?region=lagos', { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
-      fetch('/api/enrollees?region=outside', { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
+      fetch(API_BASE + '/api/enrollees?region=lagos', { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
+      fetch(API_BASE + '/api/enrollees?region=outside', { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
     ]).then(([l, o]) => {
       setEnrollees([...l, ...o])
       setLoading(false)

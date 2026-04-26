@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { API_BASE } from '../lib/api'
 import { Icon, Avatar, Pill, Modal, fmtMoney } from '../components/ui'
 
 const BLANK    = { name: '', phone: '', zone: '', vehicle: 'Motorcycle', bank: '', account_no: '', rider_id: '' }
@@ -20,7 +21,7 @@ export default function Riders({ setToast }) {
 
   useEffect(() => {
     const token = localStorage.getItem('pbm_token')
-    fetch('/api/riders', { headers: { Authorization: `Bearer ${token}` } })
+    fetch(API_BASE + '/api/riders', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json())
       .then(d => {
         // enrich seed data with on_time + rider_id if absent

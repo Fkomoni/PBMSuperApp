@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { API_BASE } from '../lib/api'
 import { Icon, Avatar, StatusPill, Pill, fmtDate } from '../components/ui'
 
 export default function CreateDeliveries({ setToast }) {
@@ -11,8 +12,8 @@ export default function CreateDeliveries({ setToast }) {
   useEffect(() => {
     const token = localStorage.getItem('pbm_token')
     Promise.all([
-      fetch('/api/enrollees?region=lagos',   { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
-      fetch('/api/enrollees?region=outside', { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
+      fetch(API_BASE + '/api/enrollees?region=lagos',   { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
+      fetch(API_BASE + '/api/enrollees?region=outside', { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
     ]).then(([l, o]) => {
       const packable = [...l, ...o].filter(e => e.status === 'Packed')
       setEnrollees(packable)

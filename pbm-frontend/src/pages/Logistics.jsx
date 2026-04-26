@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { API_BASE } from '../lib/api'
 import { Icon, Avatar, StatusPill, Pill, fmtDate } from '../components/ui'
 
 const TODAY_STR = '2026-04-18'
@@ -47,9 +48,9 @@ export default function Logistics({ setToast }) {
   useEffect(() => {
     const token = localStorage.getItem('pbm_token')
     Promise.all([
-      fetch('/api/enrollees?region=lagos',   { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
-      fetch('/api/enrollees?region=outside', { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
-      fetch('/api/riders',                   { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
+      fetch(API_BASE + '/api/enrollees?region=lagos',   { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
+      fetch(API_BASE + '/api/enrollees?region=outside', { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
+      fetch(API_BASE + '/api/riders',                   { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
     ]).then(([l, o, rd]) => {
       const assignable = [...l, ...o]
         .filter(e => e.status === 'Packed' || e.status === 'Assigned')

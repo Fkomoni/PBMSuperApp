@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { API_BASE } from '../lib/api'
 import { Icon, Avatar, Pill, fmtMoney } from '../components/ui'
 
 const WEEKS = ['Week 15 (Apr 7–13)', 'Week 16 (Apr 14–18)']
@@ -12,7 +13,7 @@ export default function Payouts({ setToast }) {
 
   useEffect(() => {
     const token = localStorage.getItem('pbm_token')
-    fetch('/api/riders', { headers: { Authorization: `Bearer ${token}` } })
+    fetch(API_BASE + '/api/riders', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json()).then(d => { setRiders(d); setLoading(false) }).catch(() => setLoading(false))
   }, [])
 

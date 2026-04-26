@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { API_BASE } from '../lib/api'
 import { Icon, Avatar, StatusPill, Pill, fmtDate, fmtMoney, daysBetween } from '../components/ui'
 
 const TODAY = new Date('2026-04-18')
@@ -317,7 +318,7 @@ export default function Enrollees({ region, setToast }) {
 
   useEffect(() => {
     const token = localStorage.getItem('pbm_token')
-    fetch(`/api/enrollees?region=${region}`, { headers: { Authorization: `Bearer ${token}` } })
+    fetch(API_BASE + `/api/enrollees?region=${region}`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json()).then(d => { setData(d); setLoading(false) }).catch(() => setLoading(false))
   }, [region])
 

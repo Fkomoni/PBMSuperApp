@@ -1,6 +1,4 @@
-import sys
-sys.path.insert(0, "/opt/pbm_deps")
-
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -8,9 +6,12 @@ from app.routers import auth, enrollees, acute_orders, dashboard, riders, stock,
 
 app = FastAPI(title="Leadway RxHub — PBM Portal API", version="1.0.0")
 
+_raw = os.getenv("CORS_ORIGINS", "http://localhost:5174")
+CORS_ORIGINS = [o.strip() for o in _raw.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

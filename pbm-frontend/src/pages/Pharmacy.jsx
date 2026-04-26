@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { API_BASE } from '../lib/api'
 import { Icon, Pill, fmtMoney, EmptyState } from '../components/ui'
 
 const CATEGORIES = ['all', 'antidiabetic', 'antihypertensive', 'cardiovascular', 'antibiotic', 'analgesic', 'other']
@@ -13,7 +14,7 @@ export default function Pharmacy({ setToast }) {
 
   useEffect(() => {
     const token = localStorage.getItem('pbm_token')
-    fetch('/api/drugs', { headers: { Authorization: `Bearer ${token}` } })
+    fetch(API_BASE + '/api/drugs', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json()).then(d => { setDrugs(d); setLoading(false) }).catch(() => setLoading(false))
   }, [])
 

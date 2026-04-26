@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { API_BASE } from '../lib/api'
 import { Icon, Pill } from '../components/ui'
 
 const ACTION_KIND = {
@@ -25,7 +26,7 @@ export default function AuditTrail({ setToast }) {
 
   useEffect(() => {
     const token = localStorage.getItem('pbm_token')
-    fetch('/api/audit', { headers: { Authorization: `Bearer ${token}` } })
+    fetch(API_BASE + '/api/audit', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json()).then(d => { setEvents(d); setLoading(false) }).catch(() => { setEvents(MOCK_AUDIT); setLoading(false) })
   }, [])
 

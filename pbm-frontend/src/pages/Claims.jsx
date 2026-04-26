@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { API_BASE } from '../lib/api'
 import { Icon, Avatar, Pill, fmtMoney, fmtDate } from '../components/ui'
 
 const STATUS_KIND = { Paid: 'success', Pending: 'warn', Rejected: 'danger', Submitted: 'default' }
@@ -12,7 +13,7 @@ export default function Claims({ setToast }) {
 
   useEffect(() => {
     const token = localStorage.getItem('pbm_token')
-    fetch('/api/claims', { headers: { Authorization: `Bearer ${token}` } })
+    fetch(API_BASE + '/api/claims', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json()).then(d => { setClaims(d); setLoading(false) }).catch(() => {
         // fallback mock
         setClaims(MOCK_CLAIMS)

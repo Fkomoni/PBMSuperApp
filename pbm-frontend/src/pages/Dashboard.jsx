@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { API_BASE } from '../lib/api'
 import { KpiTile, BarChart, Donut, Sparkline, Pill, Icon, Avatar, StatusPill, fmtDate, fmtMoney, daysBetween } from '../components/ui'
 
 const TODAY = new Date('2026-04-18')
@@ -9,7 +10,7 @@ export default function Dashboard({ onNavigate, setToast }) {
 
   useEffect(() => {
     const token = localStorage.getItem('pbm_token')
-    fetch('/api/dashboard', { headers: { Authorization: `Bearer ${token}` } })
+    fetch(API_BASE + '/api/dashboard', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json()).then(setData).catch(() => {})
   }, [])
 

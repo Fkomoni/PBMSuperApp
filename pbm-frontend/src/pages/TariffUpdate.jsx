@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { API_BASE } from '../lib/api'
 import { Icon, Pill, fmtMoney } from '../components/ui'
 
 export default function TariffUpdate({ setToast, role }) {
@@ -11,7 +12,7 @@ export default function TariffUpdate({ setToast, role }) {
 
   useEffect(() => {
     const token = localStorage.getItem('pbm_token')
-    fetch('/api/drugs', { headers: { Authorization: `Bearer ${token}` } })
+    fetch(API_BASE + '/api/drugs', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json()).then(d => { setDrugs(d); setLoading(false) }).catch(() => setLoading(false))
   }, [])
 
@@ -35,7 +36,7 @@ export default function TariffUpdate({ setToast, role }) {
     setSaving(true)
     const token = localStorage.getItem('pbm_token')
     try {
-      await fetch('/api/drugs/bulk-update', {
+      await fetch(API_BASE + '/api/drugs/bulk-update', {
         method: 'PUT',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),

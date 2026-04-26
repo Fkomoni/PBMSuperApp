@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { API_BASE } from '../lib/api'
 import { Icon, Pill, fmtMoney, fmtDate } from '../components/ui'
 
 const MOCK_MOVEMENTS = [
@@ -22,7 +23,7 @@ export default function Stock({ setToast }) {
 
   useEffect(() => {
     const token = localStorage.getItem('pbm_token')
-    fetch('/api/drugs', { headers: { Authorization: `Bearer ${token}` } })
+    fetch(API_BASE + '/api/drugs', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json()).then(d => { setDrugs(d); setLoading(false) }).catch(() => setLoading(false))
   }, [])
 

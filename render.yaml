@@ -206,9 +206,9 @@ services:
   - type: web
     name: rxhub-pbm-portal
     runtime: static
-    rootDir: pbm-frontend/dist
-    buildCommand: cd pbm-frontend && npm install && npm run build
-    staticPublishPath: .
+    rootDir: pbm-frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
     pullRequestPreviewsEnabled: false
     headers:
       - path: /*
@@ -232,7 +232,9 @@ services:
       - path: /*
         name: Permissions-Policy
         value: "camera=(), microphone=(), geolocation=(), payment=()"
-    envVars: []
+    envVars:
+      - key: VITE_API_URL
+        value: https://rxhub-pbm-api.onrender.com
     routes:
       - type: rewrite
         source: /*

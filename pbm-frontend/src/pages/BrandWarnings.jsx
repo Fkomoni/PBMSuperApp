@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { API_BASE } from '../lib/api'
 import { Icon, Pill, Modal } from '../components/ui'
 
 const BLANK_RULE = { generic: '', brand: '', rule: 'substitution-required', note: '', active: true }
@@ -19,7 +20,7 @@ export default function BrandWarnings({ setToast, role }) {
 
   useEffect(() => {
     const token = localStorage.getItem('pbm_token')
-    fetch('/api/scheme-rules', { headers: { Authorization: `Bearer ${token}` } })
+    fetch(API_BASE + '/api/scheme-rules', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json()).then(d => { setRules(d); setLoading(false) }).catch(() => { setRules(MOCK_RULES); setLoading(false) })
   }, [])
 

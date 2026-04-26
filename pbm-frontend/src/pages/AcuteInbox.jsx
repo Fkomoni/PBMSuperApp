@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { API_BASE } from '../lib/api'
 import { Icon, Avatar, StatusPill, Pill, fmtDate, fmtMoney } from '../components/ui'
 
 const ROUTING = {
@@ -42,7 +43,7 @@ function AcuteDrawer({ order, bucket, onClose, setToast }) {
     setApproving(true)
     const token = localStorage.getItem('pbm_token')
     try {
-      await fetch(`/api/acute-orders/${order.id}/approve`, {
+      await fetch(API_BASE + `/api/acute-orders/${order.id}/approve`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ note }),
@@ -154,7 +155,7 @@ export default function AcuteInbox({ bucket, setToast }) {
 
   useEffect(() => {
     const token = localStorage.getItem('pbm_token')
-    fetch(`/api/acute-orders?bucket=${bucket}`, { headers: { Authorization: `Bearer ${token}` } })
+    fetch(API_BASE + `/api/acute-orders?bucket=${bucket}`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json()).then(d => { setOrders(d); setLoading(false) }).catch(() => setLoading(false))
   }, [bucket])
 

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { API_BASE } from '../lib/api'
 import { Icon, Avatar, Pill, fmtDate } from '../components/ui'
 
 const STEPS = ['Select Member', 'Verify Drugs', 'Print Label', 'Confirm Pack']
@@ -36,8 +37,8 @@ export default function Pack({ setToast }) {
   useEffect(() => {
     const token = localStorage.getItem('pbm_token')
     Promise.all([
-      fetch('/api/enrollees?region=lagos',   { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
-      fetch('/api/enrollees?region=outside', { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
+      fetch(API_BASE + '/api/enrollees?region=lagos',   { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
+      fetch(API_BASE + '/api/enrollees?region=outside', { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
     ]).then(([l, o]) => {
       const topack = [...l, ...o].filter(e => e.status === 'Awaiting Pack' || e.status === 'Packing')
       setQueue(topack)
