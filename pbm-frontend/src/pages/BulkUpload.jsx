@@ -1,82 +1,125 @@
 import { useState, useRef } from 'react'
 import * as XLSX from 'xlsx'
-import { Icon, Pill, Avatar, fmtMoney } from '../components/ui'
+import { API_BASE } from '../lib/api'
+import { Icon, Pill, fmtMoney } from '../components/ui'
 
-// ── Template definition ───────────────────────────────────────────────────────
-const TEMPLATE_HEADERS = [
-  'member_id', 'first_name', 'last_name', 'phone', 'email',
-  'plan_code', 'company', 'gender', 'dob',
-  'primary_address', 'primary_city', 'primary_state',
-  'alt_address', 'alt_city', 'alt_state',
-  'drug_code_1', 'drug_name_1', 'qty_1',
-  'drug_code_2', 'drug_name_2', 'qty_2',
-  'drug_code_3', 'drug_name_3', 'qty_3',
-]
-
-const REQUIRED = ['member_id', 'first_name', 'last_name', 'phone', 'plan_code', 'primary_address', 'primary_state']
-
-// Mock Prognosis data keyed by member_id / drug_code
-const PROGNOSIS_PLANS = {
-  'LH-0201': { start_date: '2024-01-15', end_date: '2026-12-31' },
-  'LH-0202': { start_date: '2023-06-01', end_date: '2025-12-31' },
-  'LH-0203': { start_date: '2024-03-10', end_date: '2026-09-30' },
-  'LH-0204': { start_date: '2023-11-20', end_date: '2025-11-19' },
-  'LH-0205': { start_date: '2024-07-01', end_date: '2027-06-30' },
+// ── Excel date serial → JS Date ───────────────────────────────────────────────
+function excelDateToString(serial) {
+  if (!serial || isNaN(serial)) return String(serial || '')
+  const date = new Date(Math.round((Number(serial) - 25569) * 86400 * 1000))
+  return date.toISOString().slice(0, 10)
 }
-const PROGNOSIS_PRICES = {
-  'MET500': { name: 'Metformin 500mg', price: 420 },
-  'LSN10':  { name: 'Lisinopril 10mg', price: 480 },
-  'AML5':   { name: 'Amlodipine 5mg',  price: 620 },
-  'ATV20':  { name: 'Atorvastatin 20mg', price: 1100 },
-  'GLB5':   { name: 'Glibenclamide 5mg', price: 340 },
-  'LOS50':  { name: 'Losartan 50mg',   price: 890 },
+
+// ── Template download (matches actual upload format) ──────────────────────────
+function downloadTemplate() {
+  const headers = [
+    'entryno', 'enrolleeid', 'enrolleename', 'Company', 'Provider Code',
+    'Provider Name', 'procedurename', 'procdeureid', 'diagnosisname',
+    'diagnosis_id', 'scheme', 'provider_cost', 'procedurequantity', 'cost',
+    'Next Refill Date', 'totalcost', 'Member Address', 'City', 'State', 'Phone Number',
+  ]
+  const sample = [
+    ['1', '21008950/0', '', '', '10001', '', 'METFORMIN 500MG TABLETS', 'OT0217', 'Type 2 diabetes mellitus', 'E11', '', '420', '60', '', '2026-07-01', '25200', '14 Adeniyi Jones', 'Ikeja', 'Lagos', '08012345678'],
+    ['2', '21008950/0', '', '', '10001', '', 'LISINOPRIL 10MG', 'AHC1006', 'Essential (primary) hypertension', 'I10', '', '480', '30', '', '2026-07-01', '14400', '14 Adeniyi Jones', 'Ikeja', 'Lagos', ''],
+  ]
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...sample])
+  ws['!cols'] = headers.map(() => ({ wch: 20 }))
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, 'PBM Upload')
+  XLSX.writeFile(wb, 'PBM_BulkUpload_Template.xlsx')
+}
+
+// ── Parse raw sheet rows into drug-line objects ───────────────────────────────
+const COL_MAP = {
+  entryno: ['entryno', 'entry no', 'entry'],
+  enrolleeid: ['enrolleeid', 'enrollee id', 'member id', 'memberid'],
+  enrolleename: ['enrolleename', 'enrollee name', 'member name'],
+  company: ['company'],
+  provider_code: ['provider code', 'providercode'],
+  provider_name: ['provider name', 'providername'],
+  procedurename: ['procedurename', 'procedure name', 'drug name', 'drugname'],
+  procdeureid: ['procdeureid', 'procedureid', 'procedure id', 'drug code', 'drugcode'],
+  diagnosisname: ['diagnosisname', 'diagnosis name', 'diagnosis'],
+  diagnosis_id: ['diagnosis_id', 'diagnosisid', 'icd code', 'icd'],
+  scheme: ['scheme', 'plan'],
+  provider_cost: ['provider_cost', 'provider cost', 'unit cost', 'unitcost'],
+  procedurequantity: ['procedurequantity', 'procedure quantity', 'qty', 'quantity'],
+  cost: ['cost'],
+  next_refill_date: ['next refill date', 'next refill', 'refill date'],
+  totalcost: ['totalcost', 'total cost', 'total'],
+  address: ['member address', 'address'],
+  city: ['city'],
+  state: ['state'],
+  phone: ['phone number', 'phone', 'phonenumber'],
+}
+
+function resolveHeader(raw) {
+  const normalized = String(raw || '').trim().toLowerCase()
+  for (const [key, aliases] of Object.entries(COL_MAP)) {
+    if (aliases.includes(normalized)) return key
+  }
+  return normalized
+}
+
+function parseSheet(data) {
+  if (!data || data.length < 2) return []
+  const rawHeaders = data[0]
+  const headers = rawHeaders.map(resolveHeader)
+
+  return data.slice(1)
+    .filter(row => row.some(Boolean))
+    .map((row, idx) => {
+      const obj = {}
+      headers.forEach((h, i) => {
+        let val = row[i] !== undefined ? String(row[i]).trim() : ''
+        if (h === 'next_refill_date' && val && !isNaN(Number(val))) {
+          val = excelDateToString(Number(val))
+        }
+        obj[h] = val
+      })
+      obj._row = idx + 2
+      obj._errors = []
+      if (!obj.enrolleeid) obj._errors.push('Missing enrollee ID')
+      if (!obj.provider_code) obj._errors.push('Missing provider code')
+      if (!obj.procedurename && !obj.procdeureid) obj._errors.push('Missing procedure/drug')
+      if (!obj.provider_cost) obj._errors.push('Missing unit cost')
+      if (!obj.procedurequantity) obj._errors.push('Missing quantity')
+      // Fields that Prognosis will fill — mark as pending
+      obj._prognosis_pending = !obj.enrolleename || !obj.company || !obj.scheme || !obj.provider_name
+      obj._synced = false
+      return obj
+    })
+}
+
+// Group drug lines by enrollee for display
+function groupByEnrollee(rows) {
+  const map = new Map()
+  rows.forEach(r => {
+    if (!map.has(r.enrolleeid)) {
+      map.set(r.enrolleeid, {
+        enrolleeid: r.enrolleeid,
+        enrolleename: r.enrolleename,
+        company: r.company,
+        scheme: r.scheme,
+        phone: r.phone,
+        address: [r.address, r.city, r.state].filter(Boolean).join(', '),
+        provider_code: r.provider_code,
+        provider_name: r.provider_name,
+        lines: [],
+        _errors: [],
+        _synced: false,
+      })
+    }
+    const grp = map.get(r.enrolleeid)
+    grp.lines.push(r)
+    if (r._errors.length) grp._errors.push(...r._errors.map(e => `Row ${r._row}: ${e}`))
+  })
+  return Array.from(map.values())
 }
 
 const STEPS = ['Upload file', 'Preview & validate', 'Prognosis sync', 'Confirm & submit']
 
-function downloadTemplate() {
-  const ws = XLSX.utils.aoa_to_sheet([TEMPLATE_HEADERS, [
-    'LH-0201', 'Amina', 'Bello', '08012345678', 'amina@example.com',
-    'GOLD-PLUS', 'Zenith Bank', 'F', '1990-05-12',
-    '14 Adeniyi Jones Ave', 'Ikeja', 'Lagos',
-    '', '', '',
-    'MET500', '', '60', 'LSN10', '', '30', '', '', '',
-  ]])
-  ws['!cols'] = TEMPLATE_HEADERS.map(() => ({ wch: 18 }))
-  const wb = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb, ws, 'Members')
-  XLSX.writeFile(wb, 'PBM_BulkUpload_Template.xlsx')
-}
-
-function parseRows(data) {
-  if (!data || data.length < 2) return []
-  const headers = data[0].map(h => String(h || '').trim().toLowerCase().replace(/ /g, '_'))
-  return data.slice(1).filter(row => row.some(Boolean)).map((row, idx) => {
-    const obj = {}
-    headers.forEach((h, i) => { obj[h] = row[i] !== undefined ? String(row[i]).trim() : '' })
-    const errors = REQUIRED.filter(k => !obj[k])
-    const drugs = [1, 2, 3].map(n => ({
-      code: obj[`drug_code_${n}`] || '',
-      name: obj[`drug_name_${n}`] || '',
-      qty:  parseInt(obj[`qty_${n}`] || '0', 10),
-      price: null,
-    })).filter(d => d.code || d.name)
-    return { _idx: idx + 2, ...obj, drugs, errors, synced: false, start_date: '', end_date: '', _duplicate: false }
-  })
-}
-
-function validateDuplicates(rows) {
-  const seen = new Map()
-  return rows.map(r => {
-    if (seen.has(r.member_id)) {
-      return { ...r, errors: [...r.errors, 'Duplicate member_id in sheet'], _duplicate: true }
-    }
-    if (r.member_id) seen.set(r.member_id, true)
-    return r
-  })
-}
-
-// ── Step components ───────────────────────────────────────────────────────────
+// ── Step 1: Upload ────────────────────────────────────────────────────────────
 function UploadStep({ onFile }) {
   const ref = useRef()
   const [dragging, setDragging] = useState(false)
@@ -109,91 +152,147 @@ function UploadStep({ onFile }) {
         <div style={{ fontSize: 13, color: 'var(--lw-muted)' }}>or click to browse — .xlsx, .xls, .csv supported</div>
         <input ref={ref} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }} onChange={e => handleFile(e.target.files[0])} />
       </div>
+
       <button className="btn btn--ghost" onClick={downloadTemplate}>
         <Icon name="download" size={14} /> Download template
       </button>
-      <div style={{ fontSize: 12, color: 'var(--lw-muted)', textAlign: 'center', maxWidth: 440, lineHeight: 1.6 }}>
-        The template includes columns for <strong>member ID, plan, company, primary &amp; alternative addresses</strong>, and up to 3 drug codes. Drug prices auto-populate from Prognosis in step 3.
+
+      {/* Column legend */}
+      <div style={{ width: '100%', maxWidth: 560, background: 'var(--lw-grey-bg)', borderRadius: 12, padding: '14px 18px' }}>
+        <div style={{ fontWeight: 700, fontSize: 12.5, color: 'var(--lw-charcoal)', marginBottom: 10 }}>Expected columns (one row per drug line)</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 20px' }}>
+          {[
+            ['enrolleeid', 'Member policy number', false],
+            ['Provider Code', 'Prognosis provider code', false],
+            ['procedurename', 'Drug / procedure name', false],
+            ['procdeureid', 'Drug / procedure code', false],
+            ['diagnosisname', 'Diagnosis description', false],
+            ['diagnosis_id', 'ICD-10 code', false],
+            ['provider_cost', 'Unit cost (₦)', false],
+            ['procedurequantity', 'Quantity', false],
+            ['Next Refill Date', 'Date or Excel serial', false],
+            ['enrolleename', 'Auto-filled by Prognosis', true],
+            ['Company', 'Auto-filled by Prognosis', true],
+            ['scheme', 'Auto-filled by Prognosis', true],
+            ['Provider Name', 'Auto-filled by Prognosis', true],
+          ].map(([col, desc, auto]) => (
+            <div key={col} style={{ display: 'flex', alignItems: 'flex-start', gap: 6, fontSize: 12 }}>
+              <span style={{ fontFamily: 'monospace', color: auto ? '#2563EB' : 'var(--lw-charcoal)', fontWeight: 600, minWidth: 110 }}>{col}</span>
+              <span style={{ color: 'var(--lw-muted)' }}>{desc}</span>
+              {auto && <Pill kind="info" style={{ fontSize: 10 }}>auto</Pill>}
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   )
 }
 
-function PreviewStep({ rows }) {
-  const errCount = rows.filter(r => r.errors.length > 0).length
+// ── Step 2: Preview ───────────────────────────────────────────────────────────
+function PreviewStep({ groups, totalLines }) {
+  const errCount = groups.filter(g => g._errors.length > 0).length
+  const pendingSync = groups.filter(g => !g.enrolleename || !g.company || !g.scheme).length
+
   return (
     <div>
-      <div style={{ display: 'flex', gap: 12, marginBottom: 14 }}>
+      <div style={{ display: 'flex', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
         <div style={{ padding: '10px 14px', borderRadius: 10, background: 'var(--s-success-bg)', fontSize: 13 }}>
-          <strong style={{ color: 'var(--s-success)' }}>{rows.length - errCount}</strong> <span style={{ color: 'var(--lw-muted)' }}>valid rows</span>
+          <strong style={{ color: 'var(--s-success)' }}>{groups.length}</strong> <span style={{ color: 'var(--lw-muted)' }}>members · {totalLines} drug lines</span>
         </div>
+        {pendingSync > 0 && (
+          <div style={{ padding: '10px 14px', borderRadius: 10, background: '#E6EEFB', fontSize: 13 }}>
+            <strong style={{ color: '#2563EB' }}>{pendingSync}</strong> <span style={{ color: 'var(--lw-muted)' }}>members need Prognosis lookup</span>
+          </div>
+        )}
         {errCount > 0 && (
           <div style={{ padding: '10px 14px', borderRadius: 10, background: 'var(--s-danger-bg)', fontSize: 13 }}>
             <strong style={{ color: 'var(--s-danger)' }}>{errCount}</strong> <span style={{ color: 'var(--lw-muted)' }}>rows with errors</span>
           </div>
         )}
       </div>
+
       <div style={{ overflowX: 'auto' }}>
         <table className="tbl">
           <thead>
             <tr>
-              <th>Row</th><th>Member ID</th><th>Name</th><th>Phone</th>
-              <th>Plan</th><th>Company</th><th>Primary Address</th>
-              <th>Alt Address</th><th>Drugs</th><th>Status</th>
+              <th>Enrollee ID</th>
+              <th>Name <span style={{ color: '#2563EB', fontWeight: 400 }}>(Prognosis)</span></th>
+              <th>Company <span style={{ color: '#2563EB', fontWeight: 400 }}>(Prognosis)</span></th>
+              <th>Scheme <span style={{ color: '#2563EB', fontWeight: 400 }}>(Prognosis)</span></th>
+              <th>Provider</th>
+              <th>Drug lines</th>
+              <th>Status</th>
             </tr>
           </thead>
           <tbody>
-            {rows.map(r => (
-              <tr key={r._idx} style={{ background: r.errors.length ? 'rgba(198,21,49,.04)' : 'transparent' }}>
-                <td style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--lw-muted)' }}>{r._idx}</td>
-                <td style={{ fontFamily: 'monospace', fontSize: 12 }}>{r.member_id || <span style={{ color: 'var(--s-danger)' }}>missing</span>}</td>
-                <td style={{ fontSize: 12.5, fontWeight: 600 }}>{r.first_name} {r.last_name}</td>
-                <td style={{ fontSize: 12 }}>{r.phone}</td>
-                <td style={{ fontSize: 12 }}>{r.plan_code}</td>
-                <td style={{ fontSize: 12 }}>{r.company}</td>
-                <td style={{ fontSize: 12, maxWidth: 160 }}>
-                  <div className="truncate">{[r.primary_address, r.primary_city, r.primary_state].filter(Boolean).join(', ')}</div>
+            {groups.map(g => (
+              <tr key={g.enrolleeid} style={{ background: g._errors.length ? 'rgba(198,21,49,.04)' : 'transparent' }}>
+                <td style={{ fontFamily: 'monospace', fontSize: 12 }}>{g.enrolleeid || <span style={{ color: 'var(--s-danger)' }}>missing</span>}</td>
+                <td style={{ fontSize: 12.5 }}>
+                  {g.enrolleename
+                    ? <span style={{ fontWeight: 600 }}>{g.enrolleename}</span>
+                    : <span style={{ color: '#2563EB', fontStyle: 'italic' }}>pending sync</span>}
                 </td>
-                <td style={{ fontSize: 12, color: 'var(--lw-muted)', maxWidth: 140 }}>
-                  {r.alt_address ? <div className="truncate">{[r.alt_address, r.alt_city, r.alt_state].filter(Boolean).join(', ')}</div> : '—'}
+                <td style={{ fontSize: 12 }}>
+                  {g.company || <span style={{ color: '#2563EB', fontStyle: 'italic' }}>pending sync</span>}
                 </td>
-                <td style={{ fontSize: 12 }}>{r.drugs.length} drug{r.drugs.length !== 1 ? 's' : ''}</td>
+                <td style={{ fontSize: 12 }}>
+                  {g.scheme || <span style={{ color: '#2563EB', fontStyle: 'italic' }}>pending sync</span>}
+                </td>
+                <td style={{ fontSize: 12 }}>
+                  <div style={{ fontFamily: 'monospace' }}>{g.provider_code}</div>
+                  {g.provider_name
+                    ? <div style={{ fontSize: 11, color: 'var(--lw-muted)' }}>{g.provider_name}</div>
+                    : <div style={{ fontSize: 11, color: '#2563EB', fontStyle: 'italic' }}>name pending</div>}
+                </td>
                 <td>
-                  {r.errors.length > 0
-                    ? <Pill kind="danger" title={r.errors.join(', ')}>Error</Pill>
-                    : r._duplicate
-                      ? <Pill kind="warn">Duplicate</Pill>
-                      : <Pill kind="success">OK</Pill>}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    {g.lines.map((l, i) => (
+                      <div key={i} style={{ fontSize: 11.5, color: 'var(--lw-muted)' }}>
+                        <span style={{ fontFamily: 'monospace', marginRight: 4 }}>{l.procdeureid}</span>
+                        {l.procedurename} × {l.procedurequantity}
+                      </div>
+                    ))}
+                  </div>
+                </td>
+                <td>
+                  {g._errors.length > 0
+                    ? <Pill kind="danger" title={g._errors.join('\n')}>Error</Pill>
+                    : <Pill kind="success">OK</Pill>}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      {errCount > 0 && (
-        <div style={{ marginTop: 12, padding: '10px 14px', background: 'var(--s-danger-bg)', borderRadius: 10, fontSize: 12.5, color: 'var(--s-danger)' }}>
-          Rows with errors will be skipped during submit. Fix the source file and re-upload to include them.
-        </div>
-      )}
     </div>
   )
 }
 
-function SyncStep({ rows, setRows, syncing, onSync }) {
-  const synced = rows.filter(r => r.synced).length
-  const total  = rows.filter(r => r.errors.length === 0).length
+// ── Step 3: Prognosis Sync ────────────────────────────────────────────────────
+function SyncStep({ groups, syncing, onSync }) {
+  const synced  = groups.filter(g => g._synced).length
+  const total   = groups.filter(g => g._errors.length === 0).length
 
   return (
     <div>
-      <div style={{ marginBottom: 14, padding: '12px 14px', background: 'var(--lw-grey-bg)', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
-        <Icon name="refresh-cw" size={20} style={{ color: '#2563EB' }} />
-        <div style={{ flex: 1 }}>
-          <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--lw-charcoal)' }}>Prognosis sync</div>
-          <div style={{ fontSize: 12, color: 'var(--lw-muted)' }}>Fetches plan start/end dates and auto-populates drug unit prices for each member.</div>
+      <div style={{ marginBottom: 16, padding: '14px 16px', background: 'var(--lw-grey-bg)', borderRadius: 12, display: 'flex', alignItems: 'flex-start', gap: 14 }}>
+        <div style={{ width: 36, height: 36, borderRadius: 10, background: '#E6EEFB', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <Icon name="refresh-cw" size={18} style={{ color: '#2563EB' }} />
         </div>
-        <button className="btn btn--primary" onClick={onSync} disabled={syncing || synced === total}>
-          {syncing ? <Icon name="loader-circle" size={14} /> : <Icon name="refresh-cw" size={14} />}
-          {syncing ? 'Syncing…' : synced === total ? 'All synced' : `Sync ${total} members`}
+        <div style={{ flex: 1 }}>
+          <div style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--lw-charcoal)', marginBottom: 4 }}>Prognosis auto-population</div>
+          <div style={{ fontSize: 12.5, color: 'var(--lw-muted)', lineHeight: 1.55 }}>
+            For each member ID and provider code, Prognosis will supply:<br />
+            <strong style={{ color: 'var(--lw-charcoal)' }}>Enrollee name · Company · Scheme/plan · Provider name</strong>
+          </div>
+        </div>
+        <button className="btn btn--primary" onClick={onSync} disabled={syncing || synced === total} style={{ flexShrink: 0 }}>
+          {syncing
+            ? <><Icon name="loader-circle" size={14} /> Syncing…</>
+            : synced === total
+              ? <><Icon name="check-circle" size={14} /> All synced</>
+              : <><Icon name="refresh-cw" size={14} /> Sync {total} members</>}
         </button>
       </div>
 
@@ -201,28 +300,44 @@ function SyncStep({ rows, setRows, syncing, onSync }) {
         <div style={{ overflowX: 'auto' }}>
           <table className="tbl">
             <thead>
-              <tr><th>Member ID</th><th>Name</th><th>Plan start</th><th>Plan end</th><th>Drugs (price auto-filled)</th><th></th></tr>
+              <tr>
+                <th>Enrollee ID</th>
+                <th>Name <Pill kind="info" style={{ fontSize: 10, marginLeft: 4 }}>from Prognosis</Pill></th>
+                <th>Company</th>
+                <th>Scheme</th>
+                <th>Provider name</th>
+                <th>Drug lines</th>
+                <th></th>
+              </tr>
             </thead>
             <tbody>
-              {rows.filter(r => r.synced).map(r => (
-                <tr key={r.member_id}>
-                  <td style={{ fontFamily: 'monospace', fontSize: 12 }}>{r.member_id}</td>
-                  <td style={{ fontWeight: 600, fontSize: 13 }}>{r.first_name} {r.last_name}</td>
-                  <td style={{ fontSize: 12.5 }}>{r.start_date || '—'}</td>
-                  <td style={{ fontSize: 12.5 }}>{r.end_date || '—'}</td>
-                  <td>
-                    {r.drugs.map((d, i) => d.code ? (
-                      <div key={i} style={{ fontSize: 12, marginBottom: 2 }}>
-                        <span style={{ fontFamily: 'monospace', color: 'var(--lw-muted)' }}>{d.code}</span>
-                        {' '}{d.name}{' '}
-                        {d.price !== null ? <strong style={{ color: 'var(--s-success)' }}>₦{d.price.toLocaleString()}</strong> : <span style={{ color: 'var(--s-warn)' }}>price unknown</span>}
-                        {' × '}{d.qty}
+              {groups.filter(g => g._synced).map(g => {
+                const totalCost = g.lines.reduce((s, l) => s + (Number(l.provider_cost) * Number(l.procedurequantity) || 0), 0)
+                return (
+                  <tr key={g.enrolleeid}>
+                    <td style={{ fontFamily: 'monospace', fontSize: 12 }}>{g.enrolleeid}</td>
+                    <td style={{ fontWeight: 600, fontSize: 13 }}>{g.enrolleename}</td>
+                    <td style={{ fontSize: 12 }}>{g.company}</td>
+                    <td style={{ fontSize: 12 }}>{g.scheme}</td>
+                    <td style={{ fontSize: 12 }}>{g.provider_name}</td>
+                    <td>
+                      {g.lines.map((l, i) => (
+                        <div key={i} style={{ fontSize: 11.5, marginBottom: 2 }}>
+                          <span style={{ fontFamily: 'monospace', color: 'var(--lw-muted)', marginRight: 4 }}>{l.procdeureid}</span>
+                          {l.procedurename} × {l.procedurequantity}
+                          <strong style={{ color: 'var(--s-success)', marginLeft: 6 }}>
+                            {fmtMoney(Number(l.provider_cost) * Number(l.procedurequantity))}
+                          </strong>
+                        </div>
+                      ))}
+                      <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--lw-charcoal)', marginTop: 4 }}>
+                        Total: {fmtMoney(totalCost)}
                       </div>
-                    ) : null)}
-                  </td>
-                  <td><Pill kind="success"><Icon name="check" size={11} /> Synced</Pill></td>
-                </tr>
-              ))}
+                    </td>
+                    <td><Pill kind="success"><Icon name="check" size={11} /> Synced</Pill></td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
@@ -235,61 +350,78 @@ function SyncStep({ rows, setRows, syncing, onSync }) {
 export default function BulkUpload({ setToast }) {
   const [step, setStep]       = useState(0)
   const [fileName, setFileName] = useState('')
-  const [rows, setRows]       = useState([])
+  const [rawRows, setRawRows] = useState([])
+  const [groups, setGroups]   = useState([])
   const [syncing, setSyncing] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [results, setResults] = useState(null)
-
   const [sessions, setSessions] = useState([
-    { id: 'BU-001', date: '2026-04-10', file: 'April_Bulk_Upload.xlsx', total: 18, ok: 16, errors: 2 },
-    { id: 'BU-002', date: '2026-04-03', file: 'March_Latecomers.xlsx',  total: 7,  ok: 7,  errors: 0 },
+    { id: 'BU-001', date: '2026-04-10', file: 'April_Bulk_Upload.xlsx',  total: 18, ok: 16, errors: 2 },
+    { id: 'BU-002', date: '2026-04-03', file: 'March_Latecomers.xlsx',   total: 7,  ok: 7,  errors: 0 },
   ])
 
   const onFile = (data, name) => {
-    const parsed = validateDuplicates(parseRows(data))
-    setRows(parsed)
+    const rows = parseSheet(data)
+    const grps = groupByEnrollee(rows)
+    setRawRows(rows)
+    setGroups(grps)
     setFileName(name)
     setStep(1)
   }
 
+  // Prognosis sync — calls real API when wired; mock fills blanks for now
   const doSync = async () => {
     setSyncing(true)
-    await new Promise(r => setTimeout(r, 1200))
-    setRows(prev => prev.map(r => {
-      if (r.errors.length > 0) return r
-      const plan = PROGNOSIS_PLANS[r.member_id] || { start_date: '2025-01-01', end_date: '2026-12-31' }
-      const enrichedDrugs = r.drugs.map(d => {
-        const match = PROGNOSIS_PRICES[d.code]
-        return { ...d, name: match?.name || d.name || d.code, price: match?.price ?? null }
-      })
-      return { ...r, ...plan, drugs: enrichedDrugs, synced: true }
-    }))
-    setSyncing(false)
-    setToast('Prognosis sync complete')
+    try {
+      // TODO: replace mock with real Prognosis API calls:
+      //   GET /prognosis/members/{enrolleeid}  → { name, company, scheme }
+      //   GET /prognosis/providers/{provider_code} → { name }
+      await new Promise(r => setTimeout(r, 1400))
+      setGroups(prev => prev.map(g => {
+        if (g._errors.length > 0) return g
+        return {
+          ...g,
+          enrolleename: g.enrolleename || `${g.enrolleeid} (Prognosis)`,
+          company:      g.company      || 'Leadway Assurance',
+          scheme:       g.scheme       || 'Standard',
+          provider_name: g.provider_name || `Provider ${g.provider_code}`,
+          _synced: true,
+        }
+      }))
+      setToast('Prognosis sync complete — member details auto-populated')
+    } catch {
+      setToast('Prognosis sync failed — check API connection', 'error')
+    } finally {
+      setSyncing(false)
+    }
   }
 
   const doSubmit = async () => {
     setSubmitting(true)
-    await new Promise(r => setTimeout(r, 1500))
-    const valid = rows.filter(r => r.errors.length === 0)
+    await new Promise(r => setTimeout(r, 1200))
+    const validGroups  = groups.filter(g => g._errors.length === 0)
+    const errorGroups  = groups.filter(g => g._errors.length > 0)
     const id = `BU-${String(sessions.length + 3).padStart(3, '0')}`
-    setSessions(prev => [{ id, date: new Date().toISOString().slice(0, 10), file: fileName, total: rows.length, ok: valid.length, errors: rows.length - valid.length }, ...prev])
-    setResults({ total: rows.length, ok: valid.length, errors: rows.length - valid.length })
+    setSessions(prev => [{
+      id, date: new Date().toISOString().slice(0, 10), file: fileName,
+      total: groups.length, ok: validGroups.length, errors: errorGroups.length,
+    }, ...prev])
+    setResults({ total: groups.length, ok: validGroups.length, errors: errorGroups.length, lines: rawRows.length })
     setSubmitting(false)
     setStep(3)
-    setToast(`${valid.length} members uploaded successfully`)
+    setToast(`${validGroups.length} members uploaded — ${rawRows.length} drug lines processed`)
   }
 
-  const validCount = rows.filter(r => r.errors.length === 0).length
-  const syncedCount = rows.filter(r => r.synced).length
-  const canProceed = [
+  const validGroups  = groups.filter(g => g._errors.length === 0)
+  const syncedGroups = groups.filter(g => g._synced)
+  const canProceed   = [
     true,
-    rows.length > 0,
-    syncedCount === validCount && validCount > 0,
+    groups.length > 0,
+    syncedGroups.length === validGroups.length && validGroups.length > 0,
     true,
   ]
 
-  const reset = () => { setStep(0); setRows([]); setFileName(''); setResults(null) }
+  const reset = () => { setStep(0); setRawRows([]); setGroups([]); setFileName(''); setResults(null) }
 
   return (
     <div className="page">
@@ -305,7 +437,7 @@ export default function BulkUpload({ setToast }) {
                   <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--lw-charcoal)', flex: 1 }} className="truncate">{s.file}</span>
                   <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--lw-muted)' }}>{s.id}</span>
                 </div>
-                <div style={{ fontSize: 12, color: 'var(--lw-muted)', marginBottom: 6 }}>{s.date} · {s.total} rows</div>
+                <div style={{ fontSize: 12, color: 'var(--lw-muted)', marginBottom: 6 }}>{s.date} · {s.total} members</div>
                 <div style={{ display: 'flex', gap: 6 }}>
                   <Pill kind="success">{s.ok} uploaded</Pill>
                   {s.errors > 0 && <Pill kind="danger">{s.errors} errors</Pill>}
@@ -316,9 +448,8 @@ export default function BulkUpload({ setToast }) {
         </div>
       )}
 
-      {/* Step indicator */}
       <div className="card">
-        {/* Progress */}
+        {/* Step indicator */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 0, marginBottom: 28 }}>
           {STEPS.map((s, i) => (
             <div key={s} style={{ display: 'flex', alignItems: 'center', flex: i < STEPS.length - 1 ? 1 : 'none' }}>
@@ -337,18 +468,22 @@ export default function BulkUpload({ setToast }) {
 
         {/* Step content */}
         {step === 0 && <UploadStep onFile={onFile} />}
-        {step === 1 && <PreviewStep rows={rows} />}
-        {step === 2 && <SyncStep rows={rows} setRows={setRows} syncing={syncing} onSync={doSync} />}
+        {step === 1 && <PreviewStep groups={groups} totalLines={rawRows.length} />}
+        {step === 2 && <SyncStep groups={groups} syncing={syncing} onSync={doSync} />}
         {step === 3 && results && (
           <div style={{ textAlign: 'center', padding: '20px 0' }}>
             <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'var(--s-success-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
               <Icon name="check-circle-2" size={32} style={{ color: 'var(--s-success)' }} />
             </div>
             <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--lw-charcoal)', marginBottom: 6 }}>Upload complete</div>
-            <div style={{ fontSize: 13, color: 'var(--lw-muted)', marginBottom: 20 }}>
-              <strong style={{ color: 'var(--s-success)' }}>{results.ok}</strong> members enrolled successfully.
-              {results.errors > 0 && <> <strong style={{ color: 'var(--s-danger)' }}>{results.errors}</strong> rows skipped.</>}
+            <div style={{ fontSize: 13, color: 'var(--lw-muted)', marginBottom: 6 }}>
+              <strong style={{ color: 'var(--s-success)' }}>{results.ok}</strong> members · <strong>{results.lines}</strong> drug lines processed.
             </div>
+            {results.errors > 0 && (
+              <div style={{ fontSize: 13, color: 'var(--s-danger)', marginBottom: 16 }}>
+                <strong>{results.errors}</strong> members skipped due to errors — fix and re-upload.
+              </div>
+            )}
             <button className="btn btn--primary" onClick={reset}><Icon name="upload" size={14} /> New upload session</button>
           </div>
         )}
@@ -356,17 +491,19 @@ export default function BulkUpload({ setToast }) {
         {/* Navigation */}
         {step < 3 && (
           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 24, paddingTop: 16, borderTop: '1px solid var(--lw-grey-line)' }}>
-            <button className="btn btn--ghost btn--sm" onClick={() => step === 0 ? null : setStep(s => s - 1)} disabled={step === 0}>
+            <button className="btn btn--ghost btn--sm" onClick={() => step > 0 && setStep(s => s - 1)} disabled={step === 0}>
               ← Back
             </button>
             {step < 2 && (
               <button className="btn btn--primary" disabled={!canProceed[step]} onClick={() => setStep(s => s + 1)}>
-                {step === 1 ? 'Next: Prognosis sync' : 'Next: Preview'} →
+                {step === 0 ? 'Next: Preview' : 'Next: Prognosis sync'} →
               </button>
             )}
             {step === 2 && (
               <button className="btn btn--primary" disabled={!canProceed[2] || submitting} onClick={doSubmit}>
-                {submitting ? <><Icon name="loader-circle" size={14} /> Uploading…</> : <><Icon name="upload" size={14} /> Submit {validCount} members</>}
+                {submitting
+                  ? <><Icon name="loader-circle" size={14} /> Uploading…</>
+                  : <><Icon name="upload" size={14} /> Submit {validGroups.length} members</>}
               </button>
             )}
           </div>
