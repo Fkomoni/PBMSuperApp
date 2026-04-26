@@ -11,8 +11,7 @@ export default function TariffUpdate({ setToast, role }) {
   const [pctInput, setPctInput] = useState('')
 
   useEffect(() => {
-    const token = localStorage.getItem('pbm_token')
-    fetch(API_BASE + '/api/drugs', { headers: { Authorization: `Bearer ${token}` } })
+    fetch(API_BASE + '/api/drugs', { credentials: 'include' })
       .then(r => r.json()).then(d => { setDrugs(d); setLoading(false) }).catch(() => setLoading(false))
   }, [])
 
@@ -34,11 +33,11 @@ export default function TariffUpdate({ setToast, role }) {
     const payload = Object.entries(changes).filter(([, v]) => v !== undefined).map(([id, price]) => ({ id, unit_price: price }))
     if (payload.length === 0) { setToast('No changes to save', 'warn'); return }
     setSaving(true)
-    const token = localStorage.getItem('pbm_token')
     try {
       await fetch(API_BASE + '/api/drugs/bulk-update', {
         method: 'PUT',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify(payload),
       })
       setDrugs(prev => prev.map(d => changes[d.id] !== undefined ? { ...d, unit_price: changes[d.id] } : d))

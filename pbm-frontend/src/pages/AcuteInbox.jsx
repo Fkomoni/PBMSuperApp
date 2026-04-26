@@ -41,11 +41,11 @@ function AcuteDrawer({ order, bucket, onClose, setToast }) {
 
   const approve = async () => {
     setApproving(true)
-    const token = localStorage.getItem('pbm_token')
     try {
       await fetch(API_BASE + `/api/acute-orders/${order.id}/approve`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ note }),
       })
       setToast('Order approved and queued for fulfilment')
@@ -154,8 +154,7 @@ export default function AcuteInbox({ bucket, setToast }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const token = localStorage.getItem('pbm_token')
-    fetch(API_BASE + `/api/acute-orders?bucket=${bucket}`, { headers: { Authorization: `Bearer ${token}` } })
+    fetch(API_BASE + `/api/acute-orders?bucket=${bucket}`, { credentials: 'include' })
       .then(r => r.json()).then(d => { setOrders(d); setLoading(false) }).catch(() => setLoading(false))
   }, [bucket])
 

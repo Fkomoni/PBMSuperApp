@@ -12,8 +12,7 @@ export default function Payouts({ setToast }) {
   const [loading, setLoading]   = useState(true)
 
   useEffect(() => {
-    const token = localStorage.getItem('pbm_token')
-    fetch(API_BASE + '/api/riders', { headers: { Authorization: `Bearer ${token}` } })
+    fetch(API_BASE + '/api/riders', { credentials: 'include' })
       .then(r => r.json()).then(d => { setRiders(d); setLoading(false) }).catch(() => setLoading(false))
   }, [])
 

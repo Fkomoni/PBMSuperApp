@@ -199,9 +199,18 @@ services:
       - key: ALGORITHM
         value: HS256
       - key: ACCESS_TOKEN_EXPIRE_MINUTES
-        value: "480"
+        value: "60"
       - key: CORS_ORIGINS
         value: https://rxhub-pbm-portal.onrender.com
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: rxhub-redis
+          property: connectionString
+      # Set this to a strong random password in the Render dashboard.
+      # All seed staff accounts use this password until Azure SSO is wired up.
+      - key: STAFF_DEFAULT_PASSWORD
+        sync: false
 
   - type: web
     name: rxhub-pbm-portal

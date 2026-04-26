@@ -25,8 +25,7 @@ export default function AuditTrail({ setToast }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const token = localStorage.getItem('pbm_token')
-    fetch(API_BASE + '/api/audit', { headers: { Authorization: `Bearer ${token}` } })
+    fetch(API_BASE + '/api/audit', { credentials: 'include' })
       .then(r => r.json()).then(d => { setEvents(d); setLoading(false) }).catch(() => { setEvents(MOCK_AUDIT); setLoading(false) })
   }, [])
 

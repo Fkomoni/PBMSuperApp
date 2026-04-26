@@ -30,14 +30,13 @@ export default function Login({ onLogin }) {
       const res = await fetch(API_BASE + '/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ email, password }),
       })
       const data = await res.json()
       if (!res.ok) {
         setError(data.detail || 'Invalid credentials.')
       } else {
-        localStorage.setItem('pbm_token', data.access_token)
-        localStorage.setItem('pbm_user', JSON.stringify(data.user))
         onLogin(data.user)
       }
     } catch {

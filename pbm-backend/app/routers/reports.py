@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, Query
 from typing import Optional
 
-from app.core.security import get_current_user
+from fastapi import APIRouter, Depends, Query
+
+from app.core.security import require_roles, FINANCE
 from app.seed import ENROLLEES, CLAIMS
 
 router = APIRouter(tags=["reports"])
@@ -29,13 +30,13 @@ def _claims_by(key: str) -> dict:
 @router.get("/reports")
 def get_reports(
     dim: Optional[str] = Query("state", description="Dimension: state | company | scheme"),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_roles(*FINANCE)),
 ):
     if dim == "state":
         return {
             "dimension": "state",
             "enrollees_by_region": _group_by(ENROLLEES, "region"),
-            "claims_by_region": _claims_by("scheme"),  # region not on claims; proxy via scheme
+            "claims_by_region": _claims_by("scheme"),
         }
     elif dim == "company":
         return {

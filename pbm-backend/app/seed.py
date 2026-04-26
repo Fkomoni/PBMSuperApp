@@ -3,17 +3,22 @@ In-memory seed data for the PBM Super App backend.
 All collections are plain Python dicts/lists — no database required.
 """
 from app.core.security import hash_password
+from app.core.config import settings
 
 # ---------------------------------------------------------------------------
 # STAFF (seed accounts)
+# Passwords loaded from STAFF_DEFAULT_PASSWORD env var — never committed.
+# In production replace with Azure AD / Entra ID SSO (no local passwords).
 # ---------------------------------------------------------------------------
+_pw = hash_password(settings.STAFF_DEFAULT_PASSWORD)
+
 STAFF = [
-    {"id": "s1", "email": "pharm@leadway.com",     "hashed_password": hash_password("Leadway2026!"), "role": "pharmacist",  "name": "Pharmacy User"},
-    {"id": "s2", "email": "ops@leadway.com",        "hashed_password": hash_password("Leadway2026!"), "role": "pharm_ops",   "name": "Pharm Ops User"},
-    {"id": "s3", "email": "logistics@leadway.com",  "hashed_password": hash_password("Leadway2026!"), "role": "logistics",   "name": "Logistics User"},
-    {"id": "s4", "email": "contact@leadway.com",    "hashed_password": hash_password("Leadway2026!"), "role": "contact",     "name": "Contact Centre User"},
-    {"id": "s5", "email": "admin@leadway.com",      "hashed_password": hash_password("Leadway2026!"), "role": "admin",       "name": "Admin User"},
-    {"id": "s6", "email": "rider@leadway.com",      "hashed_password": hash_password("Leadway2026!"), "role": "rider",       "name": "Rider User"},
+    {"id": "s1", "email": "pharm@leadway.com",     "hashed_password": _pw, "role": "pharmacist",  "name": "Pharmacy User"},
+    {"id": "s2", "email": "ops@leadway.com",        "hashed_password": _pw, "role": "pharm_ops",   "name": "Pharm Ops User"},
+    {"id": "s3", "email": "logistics@leadway.com",  "hashed_password": _pw, "role": "logistics",   "name": "Logistics User"},
+    {"id": "s4", "email": "contact@leadway.com",    "hashed_password": _pw, "role": "contact",     "name": "Contact Centre User"},
+    {"id": "s5", "email": "admin@leadway.com",      "hashed_password": _pw, "role": "admin",       "name": "Admin User"},
+    {"id": "s6", "email": "rider@leadway.com",      "hashed_password": _pw, "role": "rider",       "name": "Rider User"},
 ]
 
 # ---------------------------------------------------------------------------

@@ -1,7 +1,8 @@
-import { useState, lazy, Suspense } from 'react'
+import { useState, useEffect, lazy, Suspense } from 'react'
 import Login from './pages/Login'
 import { Sidebar, Topbar, PAGE_TITLES } from './components/Shell'
 import { Toast } from './components/ui'
+import { API_BASE } from './lib/api'
 
 // Lazy-load all pages to keep initial bundle small
 const Dashboard      = lazy(() => import('./pages/Dashboard'))
@@ -39,19 +40,42 @@ function PageLoader() {
 }
 
 export default function App() {
-  const [user, setUser] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('pbm_user')) } catch { return null }
-  })
-  const [page, setPage] = useState('dashboard')
-  const [toast, setToast] = useState(null)
+  const [user, setUser]       = useState(null)
+  const [checking, setChecking] = useState(true)   // validating cookie on first load
+  const [page, setPage]       = useState('dashboard')
+  const [toast, setToast]     = useState(null)
+
+  // On mount: ask the server if we have a valid session cookie
+  useEffect(() => {
+    fetch(API_BASE + '/api/auth/me', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data) setUser(data) })
+      .catch(() => {})
+      .finally(() => setChecking(false))
+  }, [])
 
   const showToast = (msg, kind = 'success') => setToast({ msg, kind })
 
   const handleLogin = (u) => setUser(u)
-  const handleLogout = () => {
-    localStorage.removeItem('pbm_token')
-    localStorage.removeItem('pbm_user')
+
+  const handleLogout = async () => {
+    try {
+      await fetch(API_BASE + '/api/auth/logout', { method: 'POST', credentials: 'include' })
+    } catch {
+      // Even if the request fails, clear local state so the user sees the login page
+    }
     setUser(null)
+    setPage('dashboard')
+  }
+
+  if (checking) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', gap: 10, color: 'var(--lw-muted)', fontFamily: 'var(--f-sans)' }}>
+        <div style={{ width: 22, height: 22, border: '2px solid var(--lw-grey-line)', borderTopColor: 'var(--lw-red)', borderRadius: '50%', animation: 'spin .7s linear infinite' }} />
+        Verifying session…
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    )
   }
 
   if (!user) return <Login onLogin={handleLogin} />

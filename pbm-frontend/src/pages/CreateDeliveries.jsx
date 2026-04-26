@@ -10,10 +10,9 @@ export default function CreateDeliveries({ setToast }) {
   const [loading, setLoading]    = useState(true)
 
   useEffect(() => {
-    const token = localStorage.getItem('pbm_token')
     Promise.all([
-      fetch(API_BASE + '/api/enrollees?region=lagos',   { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
-      fetch(API_BASE + '/api/enrollees?region=outside', { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
+      fetch(API_BASE + '/api/enrollees?region=lagos',   { credentials: 'include' }).then(r => r.json()),
+      fetch(API_BASE + '/api/enrollees?region=outside', { credentials: 'include' }).then(r => r.json()),
     ]).then(([l, o]) => {
       const packable = [...l, ...o].filter(e => e.status === 'Packed')
       setEnrollees(packable)

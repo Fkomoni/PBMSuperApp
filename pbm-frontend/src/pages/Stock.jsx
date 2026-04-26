@@ -22,8 +22,7 @@ export default function Stock({ setToast }) {
   const [reorderQty, setReorderQty] = useState('')
 
   useEffect(() => {
-    const token = localStorage.getItem('pbm_token')
-    fetch(API_BASE + '/api/drugs', { headers: { Authorization: `Bearer ${token}` } })
+    fetch(API_BASE + '/api/drugs', { credentials: 'include' })
       .then(r => r.json()).then(d => { setDrugs(d); setLoading(false) }).catch(() => setLoading(false))
   }, [])
 

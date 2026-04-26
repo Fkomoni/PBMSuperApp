@@ -54,10 +54,9 @@ export default function RefillPlanner({ setToast }) {
   const [scheduled, setScheduled] = useState(new Set())
 
   useEffect(() => {
-    const token = localStorage.getItem('pbm_token')
     Promise.all([
-      fetch(API_BASE + '/api/enrollees?region=lagos', { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
-      fetch(API_BASE + '/api/enrollees?region=outside', { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
+      fetch(API_BASE + '/api/enrollees?region=lagos', { credentials: 'include' }).then(r => r.json()),
+      fetch(API_BASE + '/api/enrollees?region=outside', { credentials: 'include' }).then(r => r.json()),
     ]).then(([l, o]) => {
       setEnrollees([...l, ...o])
       setLoading(false)

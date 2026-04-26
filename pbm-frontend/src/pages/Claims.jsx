@@ -12,8 +12,7 @@ export default function Claims({ setToast }) {
   const [submitting, setSubmitting] = useState(new Set())
 
   useEffect(() => {
-    const token = localStorage.getItem('pbm_token')
-    fetch(API_BASE + '/api/claims', { headers: { Authorization: `Bearer ${token}` } })
+    fetch(API_BASE + '/api/claims', { credentials: 'include' })
       .then(r => r.json()).then(d => { setClaims(d); setLoading(false) }).catch(() => {
         // fallback mock
         setClaims(MOCK_CLAIMS)

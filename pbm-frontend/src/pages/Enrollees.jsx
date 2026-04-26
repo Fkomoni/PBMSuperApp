@@ -317,8 +317,7 @@ export default function Enrollees({ region, setToast }) {
   const [loading, setLoading]   = useState(true)
 
   useEffect(() => {
-    const token = localStorage.getItem('pbm_token')
-    fetch(API_BASE + `/api/enrollees?region=${region}`, { headers: { Authorization: `Bearer ${token}` } })
+    fetch(API_BASE + `/api/enrollees?region=${region}`, { credentials: 'include' })
       .then(r => r.json()).then(d => { setData(d); setLoading(false) }).catch(() => setLoading(false))
   }, [region])
 

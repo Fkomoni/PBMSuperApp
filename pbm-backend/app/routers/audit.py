@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, Query
 from typing import Optional
 
-from app.core.security import get_current_user
+from fastapi import APIRouter, Depends, Query
+
+from app.core.security import require_roles, ADMIN_ONLY
 from app.seed import AUDIT
 
 router = APIRouter(tags=["audit"])
@@ -12,7 +13,7 @@ def list_audit(
     role: Optional[str] = Query(None, description="Filter by role"),
     action: Optional[str] = Query(None, description="Filter by action"),
     q: Optional[str] = Query(None, description="Free-text search on user/resource/detail"),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_roles(*ADMIN_ONLY)),
 ):
     data = AUDIT
     if role:

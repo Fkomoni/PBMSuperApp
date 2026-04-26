@@ -1,13 +1,13 @@
 from fastapi import APIRouter, Depends
 
-from app.core.security import get_current_user
+from app.core.security import require_roles, ALL_STAFF
 from app.seed import ENROLLEES, ACUTE_ORDERS, CLAIMS, DRUGS, RIDERS, PARTNERS
 
 router = APIRouter(tags=["dashboard"])
 
 
 @router.get("/dashboard")
-def get_dashboard(current_user: dict = Depends(get_current_user)):
+def get_dashboard(current_user: dict = Depends(require_roles(*ALL_STAFF))):
     total_enrollees   = len(ENROLLEES)
     active_enrollees  = sum(1 for e in ENROLLEES if e["status"] == "Active")
     pending_orders    = sum(1 for o in ACUTE_ORDERS if o["bucket"] == "Pending")
@@ -19,11 +19,9 @@ def get_dashboard(current_user: dict = Depends(get_current_user)):
     available_riders  = sum(1 for r in RIDERS if r["status"] == "Available")
     active_partners   = sum(1 for p in PARTNERS if p["active"])
 
-    # Claims value
-    total_claims_value = sum(c["amount_ngn"] for c in CLAIMS)
+    total_claims_value    = sum(c["amount_ngn"] for c in CLAIMS)
     approved_claims_value = sum(c["amount_ngn"] for c in CLAIMS if c["status"] == "Approved")
 
-    # Region breakdown
     region_counts: dict = {}
     for e in ENROLLEES:
         region_counts[e["region"]] = region_counts.get(e["region"], 0) + 1

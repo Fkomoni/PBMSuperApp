@@ -1,6 +1,15 @@
 import { useState } from 'react'
 import { Icon, Pill, fmtDate, fmtMoney } from '../components/ui'
 
+function esc(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
 const SEED_RECORDS = [
   {
     id: 'CS-001', status: 'Finalized', clinic: 'Lagos Island General Hospital', contact: 'Dr. Adewale Bello', date: '2026-04-08', notes: 'Monthly chronic medication supply for clinic pharmacy.',
@@ -147,22 +156,27 @@ function RecordDetail({ record, onEdit, onClose }) {
   const subtotal = record.items.reduce((s, i) => s + i.qty * i.unit_cost, 0)
 
   const print = () => {
-    const win = window.open('', '_blank')
-    win.document.write(`<html><head><title>Clinic Supply ${record.id}</title><style>
+    const rows = record.items
+      .map(i => `<tr><td>${esc(i.drug)}</td><td>${esc(i.qty)}</td><td>${esc(i.unit)}</td><td>₦${(i.unit_cost || 0).toLocaleString()}</td><td>₦${((i.qty || 0) * (i.unit_cost || 0)).toLocaleString()}</td></tr>`)
+      .join('')
+    const notesHtml = record.notes
+      ? `<p style="margin-top:16px;font-size:13px;color:#555"><strong>Notes:</strong> ${esc(record.notes)}</p>`
+      : ''
+    const html = `<!DOCTYPE html><html><head><title>Clinic Supply ${esc(record.id)}</title><style>
       body{font-family:sans-serif;padding:32px;color:#1a1a1a}
       h2{margin:0 0 4px}table{width:100%;border-collapse:collapse;margin-top:16px}
       th{background:#f5f5f5;padding:8px 10px;text-align:left;font-size:12px;text-transform:uppercase}
       td{padding:8px 10px;border-bottom:1px solid #eee;font-size:13px}
       .total{font-size:16px;font-weight:800;margin-top:16px;text-align:right}
     </style></head><body>
-      <h2>Clinic Supply — ${record.id}</h2>
-      <p style="color:#666;margin:0">${record.clinic} · ${record.contact || ''} · ${fmtDate(record.date)}</p>
-      <table><thead><tr><th>Item</th><th>Qty</th><th>Unit</th><th>Unit cost</th><th>Total</th></tr></thead><tbody>
-      ${record.items.map(i => `<tr><td>${i.drug}</td><td>${i.qty}</td><td>${i.unit || ''}</td><td>₦${(i.unit_cost || 0).toLocaleString()}</td><td>₦${((i.qty || 0) * (i.unit_cost || 0)).toLocaleString()}</td></tr>`).join('')}
-      </tbody></table>
-      ${record.notes ? `<p style="margin-top:16px;font-size:13px;color:#555"><strong>Notes:</strong> ${record.notes}</p>` : ''}
+      <h2>Clinic Supply — ${esc(record.id)}</h2>
+      <p style="color:#666;margin:0">${esc(record.clinic)} · ${esc(record.contact)} · ${esc(fmtDate(record.date))}</p>
+      <table><thead><tr><th>Item</th><th>Qty</th><th>Unit</th><th>Unit cost</th><th>Total</th></tr></thead><tbody>${rows}</tbody></table>
+      ${notesHtml}
       <div class="total">Grand total: ₦${subtotal.toLocaleString()}</div>
-    </body></html>`)
+    </body></html>`
+    const win = window.open('', '_blank')
+    win.document.write(html)
     win.document.close()
     win.print()
   }

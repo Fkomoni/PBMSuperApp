@@ -1,37 +1,35 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
+from datetime import datetime, timezone
 from typing import Optional
 
-from app.core.security import get_current_user
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, Field
+
+from app.core.audit_log import log_event
+from app.core.security import require_roles, ALL_STAFF, CLINICAL
 from app.seed import ENROLLEES
 
 router = APIRouter(tags=["enrollees"])
 
 
 class CommentBody(BaseModel):
-    text: str
-    author: Optional[str] = None
+    text: str = Field(..., min_length=1, max_length=1000)
 
 
 @router.get("/enrollees")
 def list_enrollees(
     region: Optional[str] = Query(None, description="Filter by region"),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_roles(*ALL_STAFF)),
 ):
     data = ENROLLEES
     if region:
         data = [e for e in data if e["region"].lower() == region.lower()]
-    # Strip comments from list view for brevity
-    return [
-        {k: v for k, v in e.items() if k != "comments"}
-        for e in data
-    ]
+    return [{k: v for k, v in e.items() if k != "comments"} for e in data]
 
 
 @router.get("/enrollees/{enrollee_id}")
 def get_enrollee(
     enrollee_id: str,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_roles(*ALL_STAFF)),
 ):
     enrollee = next((e for e in ENROLLEES if e["id"] == enrollee_id), None)
     if not enrollee:
@@ -43,15 +41,16 @@ def get_enrollee(
 def add_comment(
     enrollee_id: str,
     body: CommentBody,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_roles(*CLINICAL)),
 ):
     enrollee = next((e for e in ENROLLEES if e["id"] == enrollee_id), None)
     if not enrollee:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Enrollee not found.")
     comment = {
-        "author": body.author or current_user["email"],
+        "author": current_user["email"],  # always from token — no author spoofing
         "text": body.text,
-        "timestamp": __import__("datetime").datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     enrollee["comments"].append(comment)
+    log_event("ADD_COMMENT", current_user, f"enrollee/{enrollee_id}", f"Comment added: {body.text[:80]}")
     return {"message": "Comment added.", "comment": comment}

@@ -19,8 +19,7 @@ export default function BrandWarnings({ setToast, role }) {
   const [search, setSearch]   = useState('')
 
   useEffect(() => {
-    const token = localStorage.getItem('pbm_token')
-    fetch(API_BASE + '/api/scheme-rules', { headers: { Authorization: `Bearer ${token}` } })
+    fetch(API_BASE + '/api/scheme-rules', { credentials: 'include' })
       .then(r => r.json()).then(d => { setRules(d); setLoading(false) }).catch(() => { setRules(MOCK_RULES); setLoading(false) })
   }, [])
 

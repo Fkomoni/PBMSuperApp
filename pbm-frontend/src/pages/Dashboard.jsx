@@ -9,8 +9,7 @@ export default function Dashboard({ onNavigate, setToast }) {
   const [data, setData] = useState(null)
 
   useEffect(() => {
-    const token = localStorage.getItem('pbm_token')
-    fetch(API_BASE + '/api/dashboard', { headers: { Authorization: `Bearer ${token}` } })
+    fetch(API_BASE + '/api/dashboard', { credentials: 'include' })
       .then(r => r.json()).then(setData).catch(() => {})
   }, [])
 
