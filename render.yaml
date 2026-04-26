@@ -179,3 +179,61 @@ services:
       - type: rewrite
         source: /*
         destination: /index.html
+
+  # ── PBM Portal — internal staff app ────────────────────────────────────────
+  - type: web
+    name: rxhub-pbm-api
+    runtime: python
+    plan: free
+    rootDir: pbm-backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.6"
+      - key: ENVIRONMENT
+        value: production
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ALGORITHM
+        value: HS256
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "480"
+      - key: CORS_ORIGINS
+        value: https://rxhub-pbm-portal.onrender.com
+
+  - type: web
+    name: rxhub-pbm-portal
+    runtime: static
+    rootDir: pbm-frontend/dist
+    buildCommand: cd pbm-frontend && npm install && npm run build
+    staticPublishPath: .
+    pullRequestPreviewsEnabled: false
+    headers:
+      - path: /*
+        name: Cache-Control
+        value: no-cache
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Strict-Transport-Security
+        value: max-age=31536000; includeSubDomains; preload
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+      - path: /*
+        name: Content-Security-Policy
+        value: "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://rxhub-pbm-api.onrender.com; img-src 'self' data: blob:; font-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'self';"
+      - path: /*
+        name: Permissions-Policy
+        value: "camera=(), microphone=(), geolocation=(), payment=()"
+    envVars: []
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
