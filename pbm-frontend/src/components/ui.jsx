@@ -1,8 +1,6 @@
 import { useEffect, useRef } from 'react'
 
 // ── Icon (lucide-react) ──────────────────────────────────────────────────────
-export { default as LucideIcon } from 'lucide-react'
-
 // Thin wrapper that maps name strings to lucide components lazily
 import * as LucideIcons from 'lucide-react'
 
@@ -46,7 +44,6 @@ export function StatusPill({ status }) {
     'Sent to Partner':  ['info',    'send'],
     'Acknowledged':     ['info',    'message-circle'],
     'Dispensing':       ['info',    'pill'],
-    'Packing':          ['info',    'package'],
     'Failed':           ['danger',  'x-circle'],
     'Cancelled':        ['neutral', 'x'],
   }
