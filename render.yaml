@@ -18,12 +18,12 @@ databases:
     databaseName: rxhub
     user: rxhub
 
+services:
   - type: redis
     name: rxhub-redis
     plan: free
     maxmemoryPolicy: allkeys-lru
 
-services:
   - type: web
     name: rxhub-provider-api
     runtime: python
@@ -241,6 +241,9 @@ services:
       - path: /*
         name: Permissions-Policy
         value: "camera=(), microphone=(), geolocation=(), payment=()"
+      - path: /*
+        name: X-Permitted-Cross-Domain-Policies
+        value: none
     envVars:
       - key: VITE_API_URL
         value: https://rxhub-pbm-api.onrender.com
