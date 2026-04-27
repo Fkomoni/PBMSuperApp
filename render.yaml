@@ -18,12 +18,13 @@ databases:
     databaseName: rxhub
     user: rxhub
 
+services:
   - type: redis
     name: rxhub-redis
     plan: free
     maxmemoryPolicy: allkeys-lru
+    ipAllowList: []
 
-services:
   - type: web
     name: rxhub-provider-api
     runtime: python
@@ -175,6 +176,89 @@ services:
         value: none
 
     envVars: []
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+
+  # ── PBM Portal — internal staff app ────────────────────────────────────────
+  - type: web
+    name: rxhub-pbm-api
+    runtime: python
+    plan: free
+    rootDir: pbm-backend
+    buildCommand: pip install -r requirements.txt
+    # 2 workers: serves parallel requests without head-of-line blocking
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 2
+    healthCheckPath: /ping
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.6"
+      - key: ENVIRONMENT
+        value: production
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ALGORITHM
+        value: HS256
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "60"
+      - key: CORS_ORIGINS
+        value: https://rxhub-pbm-portal.onrender.com
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: rxhub-redis
+          property: connectionString
+      # Set this to a strong random password in the Render dashboard.
+      # All seed staff accounts use this password until Azure SSO is wired up.
+      - key: STAFF_DEFAULT_PASSWORD
+        sync: false
+
+  - type: web
+    name: rxhub-pbm-portal
+    runtime: static
+    rootDir: pbm-frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    pullRequestPreviewsEnabled: false
+    headers:
+      # Vite fingerprints every JS/CSS/image asset with a content hash in the
+      # filename (e.g. index-Dv3k9Xq2.js). Those files never change content for
+      # a given hash, so browsers can cache them permanently. Only index.html
+      # must be revalidated so users always get the latest entry point.
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
+      - path: /index.html
+        name: Cache-Control
+        value: no-cache, no-store, must-revalidate
+      - path: /*
+        name: Cache-Control
+        value: no-cache
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Strict-Transport-Security
+        value: max-age=31536000; includeSubDomains; preload
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+      - path: /*
+        name: Content-Security-Policy
+        value: "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; connect-src 'self' https://rxhub-pbm-api.onrender.com; img-src 'self' data: blob:; font-src 'self' https://fonts.gstatic.com; frame-ancestors 'none'; object-src 'none'; base-uri 'self';"
+      - path: /*
+        name: Permissions-Policy
+        value: "camera=(), microphone=(), geolocation=(), payment=()"
+      - path: /*
+        name: X-Permitted-Cross-Domain-Policies
+        value: none
+    envVars:
+      - key: VITE_API_URL
+        value: https://rxhub-pbm-api.onrender.com
     routes:
       - type: rewrite
         source: /*

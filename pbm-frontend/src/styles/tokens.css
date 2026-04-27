@@ -1,0 +1,46 @@
+:root {
+  /* Brand colours */
+  --lw-red:        #C61531;
+  --lw-red-2:      #A00F25;
+  --lw-charcoal:   #263626;
+  --lw-orange:     #F15A24;
+  --lw-yellow:     #FFCE07;
+
+  /* Text */
+  --lw-ink:        #1A1D1A;
+  --lw-ink-2:      #4A554A;
+  --lw-muted:      #7B847B;
+  --lw-muted-2:    #B0B8B0;
+
+  /* Borders / surfaces */
+  --lw-grey-line:  #E8EAE8;
+  --lw-grey-line-2:#D3D6D3;
+  --lw-grey-bg:    #F3F4F3;
+  --lw-grey-bg-2:  #F8F9F8;
+
+  /* Semantic */
+  --s-success:     #0A7A42;
+  --s-success-bg:  #E6F4EC;
+  --s-warn:        #E0910A;
+  --s-warn-bg:     #FDF3DF;
+  --s-danger:      #C61531;
+  --s-danger-bg:   #FBE8EC;
+  --s-info:        #2966DE;
+  --s-info-bg:     #E6EEFB;
+
+  /* CTA (primary button) */
+  --cta-bg:        var(--lw-red);
+  --cta-bg-hover:  var(--lw-red-2);
+  --cta-text:      #fff;
+
+  /* Shadows */
+  --sh-sm:  0 1px 2px rgba(16,24,40,.06);
+  --sh-md:  0 4px 12px rgba(16,24,40,.08);
+  --sh-lg:  0 12px 32px rgba(16,24,40,.12);
+
+  /* Typography */
+  --f-sans: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+
+  /* Easing */
+  --ease: cubic-bezier(.22,.61,.36,1);
+}
