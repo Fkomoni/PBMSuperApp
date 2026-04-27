@@ -1,3 +1,4 @@
+from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -7,6 +8,29 @@ from pydantic import BaseModel, Field
 from app.core.audit_log import log_event
 from app.core.security import require_roles, ALL_STAFF, CLINICAL
 from app.seed import DISEASE_COHORTS, ENROLLEE_MEDICATIONS, ENROLLEES
+
+
+def _flag_medications(meds: list[dict]) -> list[dict]:
+    """Detect DUPLICATE_GENERIC and BRAND_CONFLICT within a member's med list."""
+    index: dict[str, list[int]] = defaultdict(list)
+    for i, m in enumerate(meds):
+        key = m.get("generic_name", m["drug"]).lower()
+        index[key].append(i)
+
+    result = []
+    for i, med in enumerate(meds):
+        flags: list[str] = []
+        key = med.get("generic_name", med["drug"]).lower()
+        dupes = index[key]
+        if len(dupes) > 1:
+            others = [meds[j] for j in dupes if j != i]
+            other_brands = {m.get("brand") for m in others if m.get("brand")}
+            if other_brands or med.get("brand"):
+                flags.append("BRAND_CONFLICT")
+            else:
+                flags.append("DUPLICATE_GENERIC")
+        result.append({**med, "flags": flags})
+    return result
 
 router = APIRouter(tags=["enrollees"])
 
@@ -48,7 +72,8 @@ def get_enrollee_medications(
 
     cohort_ids = enrollee["disease_cohorts"]
     cohort_details = [c for c in DISEASE_COHORTS if c["id"] in cohort_ids]
-    medications = ENROLLEE_MEDICATIONS.get(enrollee_id, [])
+    medications = _flag_medications(ENROLLEE_MEDICATIONS.get(enrollee_id, []))
+    flagged = [m for m in medications if m["flags"]]
 
     log_event("VIEW_MEDICATIONS", current_user, f"enrollee/{enrollee_id}", "Medication list accessed")
     return {
@@ -57,6 +82,7 @@ def get_enrollee_medications(
         "disease_cohorts": cohort_details,
         "medications": medications,
         "total_medications": len(medications),
+        "flagged_count": len(flagged),
     }
 
 
