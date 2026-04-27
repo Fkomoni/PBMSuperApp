@@ -6,7 +6,7 @@ from slowapi.errors import RateLimitExceeded
 
 from app.core.config import settings
 from app.core.limiter import limiter
-from app.routers import auth, enrollees, acute_orders, dashboard, riders, stock, claims, reports, audit
+from app.routers import auth, enrollees, acute_orders, dashboard, riders, stock, claims, reports, audit, member_requests
 
 app = FastAPI(
     title="Leadway RxHub — PBM Portal API",
@@ -40,7 +40,8 @@ app.include_router(riders.router,       prefix="/api")
 app.include_router(stock.router,        prefix="/api")
 app.include_router(claims.router,       prefix="/api")
 app.include_router(reports.router,      prefix="/api")
-app.include_router(audit.router,        prefix="/api")
+app.include_router(audit.router,          prefix="/api")
+app.include_router(member_requests.router, prefix="/api")
 
 
 @app.get("/health")
