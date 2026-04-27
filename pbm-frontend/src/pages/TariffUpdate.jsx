@@ -24,13 +24,13 @@ export default function TariffUpdate({ setToast, role }) {
     const pct = parseFloat(pctInput)
     if (isNaN(pct)) return
     const next = {}
-    filtered.forEach(d => { next[d.id] = Math.round((d.unit_price * (1 + pct / 100)) / 5) * 5 })
+    filtered.forEach(d => { next[d.id] = Math.round(((d.price_ngn ?? d.unit_price ?? 0) * (1 + pct / 100)) / 5) * 5 })
     setChanges(c => ({ ...c, ...next }))
     setPctInput('')
   }
 
   const saveAll = async () => {
-    const payload = Object.entries(changes).filter(([, v]) => v !== undefined).map(([id, price]) => ({ id, unit_price: price }))
+    const payload = Object.entries(changes).filter(([, v]) => v !== undefined).map(([id, price]) => ({ id, price_ngn: price }))
     if (payload.length === 0) { setToast('No changes to save', 'warn'); return }
     setSaving(true)
     try {
@@ -40,7 +40,7 @@ export default function TariffUpdate({ setToast, role }) {
         credentials: 'include',
         body: JSON.stringify(payload),
       })
-      setDrugs(prev => prev.map(d => changes[d.id] !== undefined ? { ...d, unit_price: changes[d.id] } : d))
+      setDrugs(prev => prev.map(d => changes[d.id] !== undefined ? { ...d, price_ngn: changes[d.id] } : d))
       setChanges({})
       setToast(`${payload.length} tariff${payload.length !== 1 ? 's' : ''} updated`)
     } catch {
@@ -50,7 +50,7 @@ export default function TariffUpdate({ setToast, role }) {
     }
   }
 
-  const filtered = drugs.filter(d => !search || d.name.toLowerCase().includes(search.toLowerCase()) || d.generic.toLowerCase().includes(search.toLowerCase()))
+  const filtered = drugs.filter(d => !search || d.name.toLowerCase().includes(search.toLowerCase()) || (d.generic_name || '').toLowerCase().includes(search.toLowerCase()))
   const changedCount = Object.values(changes).filter(v => v !== undefined).length
 
   if (loading) return <div className="page" style={{ color: 'var(--lw-muted)', padding: 48 }}>Loading…</div>
@@ -95,21 +95,25 @@ export default function TariffUpdate({ setToast, role }) {
           <tbody>
             {filtered.map(d => {
               const newPrice = changes[d.id]
-              const diff     = newPrice !== undefined ? newPrice - d.unit_price : 0
-              const pct      = d.unit_price > 0 ? (diff / d.unit_price) * 100 : 0
+              const curPrice = d.price_ngn ?? d.unit_price ?? 0
+              const diff     = newPrice !== undefined ? newPrice - curPrice : 0
+              const pct      = curPrice > 0 ? (diff / curPrice) * 100 : 0
               return (
                 <tr key={d.id} style={{ background: newPrice !== undefined ? 'rgba(246,165,36,.05)' : 'transparent' }}>
-                  <td style={{ fontWeight: 600, color: 'var(--lw-charcoal)', fontSize: 13 }}>{d.name}</td>
-                  <td style={{ color: 'var(--lw-muted)', fontSize: 12.5 }}>{d.generic}</td>
-                  <td style={{ fontSize: 12.5 }}>{d.strength}</td>
-                  <td style={{ fontSize: 13 }}>{fmtMoney(d.unit_price)}</td>
+                  <td>
+                    <div style={{ fontWeight: 600, color: 'var(--lw-charcoal)', fontSize: 13 }}>{d.name}</div>
+                    {d.brand_name && <div style={{ fontSize: 11, color: 'var(--lw-muted)' }}>Brand: {d.brand_name}</div>}
+                  </td>
+                  <td style={{ color: 'var(--lw-muted)', fontSize: 12.5 }}>{d.generic_name || '—'}</td>
+                  <td style={{ fontSize: 12.5 }}>{d.form}{d.strength ? ` · ${d.strength}` : ''}</td>
+                  <td style={{ fontSize: 13 }}>{fmtMoney(curPrice)}</td>
                   <td>
                     <input
                       className="input"
                       type="number"
                       style={{ width: 110, fontSize: 12, border: newPrice !== undefined ? '1px solid var(--s-warn)' : undefined }}
                       value={newPrice !== undefined ? newPrice : ''}
-                      placeholder={String(d.unit_price)}
+                      placeholder={String(curPrice)}
                       onChange={e => setPrice(d.id, e.target.value)}
                     />
                   </td>

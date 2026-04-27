@@ -43,7 +43,7 @@ export default function CreateDeliveries({ setToast }) {
     setCreating(false)
   }
 
-  const filtered = enrollees.filter(e => !search || e.name.toLowerCase().includes(search.toLowerCase()) || e.plan_id.toLowerCase().includes(search.toLowerCase()))
+  const filtered = enrollees.filter(e => !search || e.name.toLowerCase().includes(search.toLowerCase()) || (e.id || e.policy_no || '').toLowerCase().includes(search.toLowerCase()))
 
   if (loading) return <div className="page" style={{ color: 'var(--lw-muted)', padding: 48 }}>Loading…</div>
 
@@ -99,9 +99,9 @@ export default function CreateDeliveries({ setToast }) {
                     </div>
                   </div>
                 </td>
-                <td style={{ fontFamily: 'monospace', fontSize: 12 }}>{e.plan_id}</td>
-                <td style={{ textTransform: 'capitalize', fontSize: 12.5 }}>{e.diagnosis}</td>
-                <td style={{ fontSize: 12.5 }}>{e.state}</td>
+                <td style={{ fontFamily: 'monospace', fontSize: 12 }}>{e.id || e.policy_no}</td>
+                <td style={{ fontSize: 12.5 }}>{(e.disease_cohorts || []).join(', ') || e.scheme || '—'}</td>
+                <td style={{ fontSize: 12.5 }}>{e.region}</td>
                 <td style={{ fontSize: 12.5 }}>{fmtDate(e.next_refill)}</td>
                 <td><StatusPill status={e.status} /></td>
               </tr>

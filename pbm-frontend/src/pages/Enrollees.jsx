@@ -170,16 +170,25 @@ function EnrolleeDrawer({ enrollee, onClose, setToast }) {
               )}
               {!medsLoading && meds !== null && (
                 <>
-                  {medsData && (
-                    <div style={{ display: 'flex', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
-                      <div style={{ padding: '8px 12px', borderRadius: 8, background: 'var(--s-success-bg)', fontSize: 12 }}>
-                        <strong style={{ color: 'var(--s-success)' }}>{medsData.total_medications}</strong>
-                        <span style={{ color: 'var(--lw-muted)' }}> total meds</span>
+                  {/* Chronic limit widget */}
+                  {enrollee.benefit_cap != null && (
+                    <div style={{ padding: '12px 14px', background: 'var(--lw-grey-bg)', borderRadius: 12, marginBottom: 14, border: '1px solid var(--lw-grey-line)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--lw-muted)', textTransform: 'uppercase', letterSpacing: '.04em' }}>Chronic limit (benefit cap)</div>
+                          <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--lw-charcoal)', marginTop: 2 }}>{fmtMoney(enrollee.benefit_cap)}</div>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <div style={{ fontSize: 11, color: 'var(--lw-muted)' }}>Total meds on plan</div>
+                          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--lw-charcoal)' }}>
+                            {medsData ? `${medsData.total_medications} drugs` : '—'}
+                          </div>
+                        </div>
                       </div>
-                      {medsData.flagged_count > 0 && (
-                        <div style={{ padding: '8px 12px', borderRadius: 8, background: 'var(--s-danger-bg)', fontSize: 12 }}>
-                          <strong style={{ color: 'var(--s-danger)' }}>{medsData.flagged_count}</strong>
-                          <span style={{ color: 'var(--lw-muted)' }}> flagged</span>
+                      {medsData && medsData.flagged_count > 0 && (
+                        <div style={{ padding: '6px 10px', borderRadius: 8, background: 'var(--s-danger-bg)', fontSize: 12, display: 'inline-block' }}>
+                          <span style={{ color: 'var(--s-danger)', fontWeight: 700 }}>⚠ {medsData.flagged_count} flagged</span>
+                          <span style={{ color: 'var(--lw-muted)' }}> (brand conflict / duplicate)</span>
                         </div>
                       )}
                     </div>
