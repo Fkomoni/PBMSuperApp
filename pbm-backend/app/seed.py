@@ -2,8 +2,11 @@
 In-memory seed data for the PBM Super App backend.
 All collections are plain Python dicts/lists — no database required.
 """
+import datetime as _dt
 from app.core.security import hash_password
 from app.core.config import settings
+
+_TODAY = _dt.date(2026, 4, 18)
 
 # ---------------------------------------------------------------------------
 # DISEASE COHORTS — 10 most common Nigerian chronic conditions
@@ -208,6 +211,10 @@ ENROLLEES = [
         "scheme":         _schemes[(i - 1) % len(_schemes)],
         "status":         _statuses[(i - 1) % len(_statuses)],
         "disease_cohorts": _pick_cohorts(i),
+        "next_refill":    (_TODAY + _dt.timedelta(days=(i - 1) % 30 + 1)).isoformat(),
+        "adherence":      62 + (i * 13 % 38),
+        "copay":          (i % 5 + 1) * 1500,
+        "benefit_cap":    ((i % 4) + 3) * 150000,
         "comments":       [],
     }
     for i in range(1, 61)

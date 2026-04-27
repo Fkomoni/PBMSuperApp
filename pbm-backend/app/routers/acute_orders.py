@@ -38,11 +38,17 @@ class SubmitClaimBody(BaseModel):
 @router.get("/acute-orders")
 def list_acute_orders(
     bucket: Optional[str] = Query(None, description="Filter by bucket/status"),
+    region: Optional[str] = Query(None, description="'lagos', 'outside', or exact region name"),
     current_user: dict = Depends(require_roles(*ALL_STAFF)),
 ):
     data = ACUTE_ORDERS
     if bucket:
         data = [o for o in data if o["bucket"].lower() == bucket.lower()]
+    if region:
+        if region.lower() == "outside":
+            data = [o for o in data if o["region"].lower() != "lagos"]
+        else:
+            data = [o for o in data if o["region"].lower() == region.lower()]
     return data
 
 

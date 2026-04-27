@@ -29,19 +29,18 @@ export default function Stock({ setToast }) {
   const submitReorder = (drug) => {
     const qty = parseInt(reorderQty, 10)
     if (!qty || qty <= 0) return
-    setDrugs(prev => prev.map(d => d.id === drug.id ? { ...d, quantity: d.quantity + qty } : d))
+    setDrugs(prev => prev.map(d => d.id === drug.id
+      ? { ...d, stock_level: (d.stock_level ?? 0) + qty, quantity: (d.quantity ?? 0) + qty }
+      : d))
     setToast(`Reorder of ${qty} × ${drug.name} submitted`)
     setReordering(null)
     setReorderQty('')
   }
 
-  const filtered = drugs.filter(d => !search || d.name.toLowerCase().includes(search.toLowerCase()))
-  const expiringSoon = drugs.filter(d => {
-    if (!d.expiry) return false
-    const days = Math.ceil((new Date(d.expiry) - new Date('2026-04-18')) / 86400000)
-    return days > 0 && days <= 90
-  })
-  const lowStock = drugs.filter(d => d.quantity <= d.reorder_level)
+  const filtered = drugs.filter(d => !search || d.name.toLowerCase().includes(search.toLowerCase())
+    || (d.generic_name || '').toLowerCase().includes(search.toLowerCase())
+    || (d.category || '').toLowerCase().includes(search.toLowerCase()))
+  const lowStock = drugs.filter(d => (d.stock_level ?? d.quantity ?? 0) <= d.reorder_level)
 
   if (loading) return <div className="page" style={{ color: 'var(--lw-muted)', padding: 48 }}>Loading…</div>
 
@@ -51,12 +50,6 @@ export default function Stock({ setToast }) {
         <div className="banner banner--danger" style={{ marginBottom: 12 }}>
           <Icon name="alert-triangle" size={18} />
           <div><strong>{lowStock.length} item{lowStock.length !== 1 ? 's' : ''}</strong> below reorder level. Immediate procurement required.</div>
-        </div>
-      )}
-      {expiringSoon.length > 0 && (
-        <div className="banner banner--warn" style={{ marginBottom: 16 }}>
-          <Icon name="clock" size={18} />
-          <div><strong>{expiringSoon.length} batch{expiringSoon.length !== 1 ? 'es' : ''}</strong> expiring within 90 days. Apply FEFO dispensing.</div>
         </div>
       )}
 
@@ -78,25 +71,31 @@ export default function Stock({ setToast }) {
             <table className="tbl">
               <thead>
                 <tr>
-                  <th>Drug</th>
-                  <th>Strength</th>
-                  <th>Quantity</th>
+                  <th>Drug / Generic</th>
+                  <th>Category</th>
+                  <th>Form</th>
+                  <th>Stock</th>
                   <th>Reorder Lvl</th>
                   <th>Unit Price</th>
+                  <th>Formulary</th>
                   <th>Status</th>
                   <th></th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.map(d => {
-                  const isLow = d.quantity <= d.reorder_level
+                  const stock = d.stock_level ?? d.quantity ?? 0
+                  const isLow = stock <= d.reorder_level
                   return (
                     <tr key={d.id}>
                       <td>
                         <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--lw-charcoal)' }}>{d.name}</div>
-                        <div style={{ fontSize: 11, color: 'var(--lw-muted)' }}>{d.generic}</div>
+                        <div style={{ fontSize: 11, color: 'var(--lw-muted)' }}>
+                          {d.generic_name}{d.brand_name ? ` · ${d.brand_name}` : ''}
+                        </div>
                       </td>
-                      <td style={{ fontSize: 12.5 }}>{d.strength}</td>
+                      <td style={{ fontSize: 12 }}>{d.category}</td>
+                      <td style={{ fontSize: 12 }}>{d.form}{d.strength ? ` · ${d.strength}` : ''}</td>
                       <td>
                         {reordering === d.id ? (
                           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
@@ -106,14 +105,22 @@ export default function Stock({ setToast }) {
                             <button className="btn btn--ghost btn--sm" onClick={() => { setReordering(null); setReorderQty('') }}>✕</button>
                           </div>
                         ) : (
-                          <span style={{ fontWeight: 700, color: isLow ? 'var(--s-danger)' : 'var(--lw-charcoal)', fontSize: 15 }}>{d.quantity}</span>
+                          <div>
+                            <span style={{ fontWeight: 700, color: isLow ? 'var(--s-danger)' : 'var(--lw-charcoal)', fontSize: 15 }}>{stock}</span>
+                            <span style={{ fontSize: 11, color: 'var(--lw-muted)', marginLeft: 4 }}>{d.unit}</span>
+                          </div>
                         )}
                       </td>
                       <td style={{ fontSize: 13 }}>{d.reorder_level}</td>
-                      <td style={{ fontSize: 13 }}>{fmtMoney(d.unit_price)}</td>
+                      <td style={{ fontSize: 13, fontWeight: 600 }}>{fmtMoney(d.price_ngn ?? d.unit_price ?? 0)}</td>
                       <td>
-                        <Pill kind={isLow ? 'danger' : d.quantity <= d.reorder_level * 2 ? 'warn' : 'success'}>
-                          {isLow ? 'Low' : d.quantity <= d.reorder_level * 2 ? 'Watch' : 'OK'}
+                        <Pill kind={d.formulary === 'A' ? 'success' : d.formulary === 'B' ? 'warn' : 'default'}>
+                          {d.formulary || '—'}
+                        </Pill>
+                      </td>
+                      <td>
+                        <Pill kind={isLow ? 'danger' : stock <= d.reorder_level * 2 ? 'warn' : 'success'}>
+                          {isLow ? 'Low' : stock <= d.reorder_level * 2 ? 'Watch' : 'OK'}
                         </Pill>
                       </td>
                       <td>

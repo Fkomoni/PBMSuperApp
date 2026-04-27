@@ -4,6 +4,18 @@ import { Icon, Avatar, Pill, fmtDate, daysBetween } from '../components/ui'
 
 const TODAY = new Date('2026-04-18')
 
+const COHORT_NAMES = {
+  dc01: 'Diabetes', dc02: 'Hypertension', dc03: 'Sickle Cell',
+  dc04: 'Hepatitis B', dc05: 'Seizure Disorder', dc06: 'Eye Disorders',
+  dc07: 'Musculoskeletal', dc08: 'Autoimmune', dc09: 'CKD', dc10: 'Asthma/COPD',
+}
+
+function diagnosisLabel(cohorts) {
+  if (!cohorts || cohorts.length === 0) return '—'
+  const names = cohorts.slice(0, 2).map(c => COHORT_NAMES[c] || c).join(', ')
+  return cohorts.length > 2 ? `${names} +${cohorts.length - 2}` : names
+}
+
 const WINDOWS = [
   { key: '7',  label: 'Next 7 days' },
   { key: '14', label: 'Next 14 days' },
@@ -24,19 +36,19 @@ function RefillRow({ e, days, onSchedule }) {
           <Avatar name={e.name} size={28} />
           <div>
             <div style={{ fontWeight: 600, color: 'var(--lw-charcoal)', fontSize: 13 }}>{e.name}</div>
-            <div style={{ fontSize: 11, color: 'var(--lw-muted)' }}>{e.plan_id}</div>
+            <div style={{ fontSize: 11, color: 'var(--lw-muted)' }}>{e.id || e.policy_no}</div>
           </div>
         </div>
       </td>
-      <td style={{ textTransform: 'capitalize', fontSize: 12.5 }}>{e.diagnosis}</td>
-      <td style={{ fontSize: 12.5 }}>{e.state}</td>
+      <td style={{ fontSize: 12.5 }}>{diagnosisLabel(e.disease_cohorts)}</td>
+      <td style={{ fontSize: 12.5 }}>{e.region}</td>
       <td>
         <div style={{ fontSize: 12.5, fontWeight: 600 }}>{fmtDate(e.next_refill)}</div>
       </td>
       <td>
         <Pill kind={urgencyKind(days)}>in {days}d</Pill>
       </td>
-      <td style={{ fontSize: 13 }}>{e.adherence}%</td>
+      <td style={{ fontSize: 13 }}>{e.adherence != null ? `${e.adherence}%` : '—'}</td>
       <td>
         <button className="btn btn--primary btn--sm" onClick={() => onSchedule(e)}>
           <Icon name="package" size={12} /> Schedule pack
@@ -68,7 +80,8 @@ export default function RefillPlanner({ setToast }) {
   const upcoming = enrollees
     .map(e => ({ e, d: daysBetween(TODAY, e.next_refill) }))
     .filter(({ d }) => d >= 0 && d <= days)
-    .filter(({ e }) => !search || e.name.toLowerCase().includes(search.toLowerCase()) || e.plan_id.toLowerCase().includes(search.toLowerCase()))
+    .filter(({ e }) => !search || e.name.toLowerCase().includes(search.toLowerCase())
+      || (e.id || e.policy_no || '').toLowerCase().includes(search.toLowerCase()))
     .sort((a, b) => a.d - b.d)
 
   const scheduleAll = () => {
