@@ -229,7 +229,7 @@ ENROLLEE_MEDICATIONS: dict[str, list[dict]] = {
 # ---------------------------------------------------------------------------
 # ACUTE ORDERS (20)
 # ---------------------------------------------------------------------------
-_buckets = ["Pending", "Processing", "Dispatched", "Delivered", "Cancelled"]
+_buckets = ["Pending", "Processing", "Dispatched", "Delivered", "Cancelled", "Awaiting Claim"]
 _ao_drugs = [
     "Metformin 500mg", "Amlodipine 5mg", "Hydroxyurea 500mg", "Tenofovir DF 300mg",
     "Carbamazepine 200mg", "Timolol Eye Drops 0.5%", "Diclofenac 50mg",
@@ -250,6 +250,14 @@ ACUTE_ORDERS = [
         "region":        _regions[(i - 1) % len(_regions)],
         "created_at":    f"2026-04-{(i % 28) + 1:02d}T{(i % 10) + 8:02d}:00:00",
         "notes":         "",
+        # Rider assignment — populated by POST /assign-rider, cleared by /unpack
+        "rider_id":      None,
+        "rider_name":    None,
+        "assigned_at":   None,
+        # Claim linkage — populated by POST /submit-claim
+        "claim_id":      None,
+        "partner_id":    None,
+        "amount_ngn":    None,
     }
     for i in range(1, 21)
 ]
