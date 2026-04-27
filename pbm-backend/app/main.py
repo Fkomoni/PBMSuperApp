@@ -1,6 +1,7 @@
 import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
@@ -14,6 +15,9 @@ app = FastAPI(
     docs_url="/docs" if settings.ENVIRONMENT != "production" else None,
     redoc_url="/redoc" if settings.ENVIRONMENT != "production" else None,
 )
+
+# ── Compression — applied before CORS so preflight responses are also small ──
+app.add_middleware(GZipMiddleware, minimum_size=500)
 
 # ── Rate limiter ──────────────────────────────────────────────────────────────
 app.state.limiter = limiter
@@ -32,18 +36,24 @@ app.add_middleware(
 )
 
 # ── Routers ───────────────────────────────────────────────────────────────────
-app.include_router(auth.router,         prefix="/api")
-app.include_router(enrollees.router,    prefix="/api")
-app.include_router(acute_orders.router, prefix="/api")
-app.include_router(dashboard.router,    prefix="/api")
-app.include_router(riders.router,       prefix="/api")
-app.include_router(stock.router,        prefix="/api")
-app.include_router(claims.router,       prefix="/api")
-app.include_router(reports.router,      prefix="/api")
-app.include_router(audit.router,          prefix="/api")
+app.include_router(auth.router,            prefix="/api")
+app.include_router(enrollees.router,       prefix="/api")
+app.include_router(acute_orders.router,    prefix="/api")
+app.include_router(dashboard.router,       prefix="/api")
+app.include_router(riders.router,          prefix="/api")
+app.include_router(stock.router,           prefix="/api")
+app.include_router(claims.router,          prefix="/api")
+app.include_router(reports.router,         prefix="/api")
+app.include_router(audit.router,           prefix="/api")
 app.include_router(member_requests.router, prefix="/api")
 
 
 @app.get("/health")
 def health():
     return {"status": "ok", "service": "pbm", "env": settings.ENVIRONMENT}
+
+
+@app.get("/ping")
+def ping():
+    """Lightweight keep-alive endpoint — no auth, no DB, ~1ms response."""
+    return "pong"
