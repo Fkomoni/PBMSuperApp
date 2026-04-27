@@ -6,6 +6,86 @@ from app.core.security import hash_password
 from app.core.config import settings
 
 # ---------------------------------------------------------------------------
+# DISEASE COHORTS — 10 most common Nigerian chronic conditions
+# ---------------------------------------------------------------------------
+DISEASE_COHORTS = [
+    {"id": "dc01", "name": "Diabetes Mellitus",               "icd10": "E11",  "description": "Type 2 Diabetes Mellitus"},
+    {"id": "dc02", "name": "Hypertension",                    "icd10": "I10",  "description": "Essential (Primary) Hypertension"},
+    {"id": "dc03", "name": "Sickle Cell Disease",             "icd10": "D57",  "description": "Sickle-cell Disorders"},
+    {"id": "dc04", "name": "Hepatitis B",                     "icd10": "B18.1","description": "Chronic Viral Hepatitis B"},
+    {"id": "dc05", "name": "Seizure Disorder",                "icd10": "G40",  "description": "Epilepsy and Recurrent Seizures"},
+    {"id": "dc06", "name": "Eye Disorders",                   "icd10": "H26",  "description": "Glaucoma, Diabetic Retinopathy, Cataracts"},
+    {"id": "dc07", "name": "Spondylosis & Musculoskeletal",   "icd10": "M47",  "description": "Spondylosis, Arthritis, and Musculoskeletal Disorders"},
+    {"id": "dc08", "name": "Autoimmune Disorders",            "icd10": "M35.9","description": "Systemic Autoimmune Diseases (SLE, Rheumatoid Arthritis)"},
+    {"id": "dc09", "name": "Chronic Kidney Disease",          "icd10": "N18",  "description": "Chronic Kidney Disease (CKD)"},
+    {"id": "dc10", "name": "Asthma & COPD",                   "icd10": "J45",  "description": "Asthma and Chronic Obstructive Pulmonary Disease"},
+]
+
+# Canonical 30-day medication list per cohort
+_COHORT_DRUGS: dict[str, list[dict]] = {
+    "dc01": [
+        {"drug": "Metformin 500mg",       "cohort_id": "dc01", "qty_30day": 60},
+        {"drug": "Glibenclamide 5mg",     "cohort_id": "dc01", "qty_30day": 30},
+        {"drug": "Insulin NPH 100IU/mL",  "cohort_id": "dc01", "qty_30day":  1},
+    ],
+    "dc02": [
+        {"drug": "Amlodipine 5mg",             "cohort_id": "dc02", "qty_30day": 30},
+        {"drug": "Lisinopril 10mg",            "cohort_id": "dc02", "qty_30day": 30},
+        {"drug": "Hydrochlorothiazide 25mg",   "cohort_id": "dc02", "qty_30day": 30},
+    ],
+    "dc03": [
+        {"drug": "Hydroxyurea 500mg",  "cohort_id": "dc03", "qty_30day": 30},
+        {"drug": "Folic Acid 5mg",     "cohort_id": "dc03", "qty_30day": 30},
+        {"drug": "Proguanil 100mg",    "cohort_id": "dc03", "qty_30day": 30},
+    ],
+    "dc04": [
+        {"drug": "Tenofovir 300mg",   "cohort_id": "dc04", "qty_30day": 30},
+        {"drug": "Entecavir 0.5mg",   "cohort_id": "dc04", "qty_30day": 30},
+    ],
+    "dc05": [
+        {"drug": "Phenobarbitone 30mg",      "cohort_id": "dc05", "qty_30day": 60},
+        {"drug": "Carbamazepine 200mg",      "cohort_id": "dc05", "qty_30day": 60},
+        {"drug": "Sodium Valproate 200mg",   "cohort_id": "dc05", "qty_30day": 60},
+    ],
+    "dc06": [
+        {"drug": "Timolol Eye Drops 0.5%",      "cohort_id": "dc06", "qty_30day": 2},
+        {"drug": "Latanoprost Eye Drops 0.005%","cohort_id": "dc06", "qty_30day": 1},
+        {"drug": "Dexamethasone Eye Drops 0.1%","cohort_id": "dc06", "qty_30day": 1},
+    ],
+    "dc07": [
+        {"drug": "Diclofenac 50mg",      "cohort_id": "dc07", "qty_30day": 60},
+        {"drug": "Methocarbamol 500mg",  "cohort_id": "dc07", "qty_30day": 60},
+        {"drug": "Prednisolone 5mg",     "cohort_id": "dc07", "qty_30day": 30},
+    ],
+    "dc08": [
+        {"drug": "Hydroxychloroquine 200mg", "cohort_id": "dc08", "qty_30day": 60},
+        {"drug": "Methotrexate 2.5mg",      "cohort_id": "dc08", "qty_30day": 12},
+        {"drug": "Prednisolone 10mg",       "cohort_id": "dc08", "qty_30day": 30},
+    ],
+    "dc09": [
+        {"drug": "Erythropoietin 4000IU inj", "cohort_id": "dc09", "qty_30day":  4},
+        {"drug": "Calcium Carbonate 500mg",   "cohort_id": "dc09", "qty_30day": 90},
+        {"drug": "Ferrous Sulphate 200mg",    "cohort_id": "dc09", "qty_30day": 30},
+    ],
+    "dc10": [
+        {"drug": "Salbutamol Inhaler 100mcg",      "cohort_id": "dc10", "qty_30day": 1},
+        {"drug": "Beclomethasone Inhaler 100mcg",  "cohort_id": "dc10", "qty_30day": 1},
+        {"drug": "Aminophylline 100mg",            "cohort_id": "dc10", "qty_30day": 60},
+    ],
+}
+
+_cohort_ids = [c["id"] for c in DISEASE_COHORTS]
+
+
+def _pick_cohorts(i: int) -> list[str]:
+    """Assign 0-2 disease cohorts to enrollee i for representative seed data."""
+    if i % 7 == 0:
+        return []
+    if i % 3 == 0:
+        return [_cohort_ids[i % 10], _cohort_ids[(i + 4) % 10]]
+    return [_cohort_ids[i % 10]]
+
+# ---------------------------------------------------------------------------
 # STAFF (seed accounts)
 # Passwords loaded from STAFF_DEFAULT_PASSWORD env var — never committed.
 # In production replace with Azure AD / Entra ID SSO (no local passwords).
@@ -40,10 +120,24 @@ ENROLLEES = [
         "scheme": _schemes[i % len(_schemes)],
         "status": _statuses[i % len(_statuses)],
         "policy_no": f"LW-2026-{i:04d}",
+        "disease_cohorts": _pick_cohorts(i),
         "comments": [],
     }
     for i in range(1, 31)
 ]
+
+# ---------------------------------------------------------------------------
+# ENROLLEE MEDICATIONS — {drug, cohort_id, qty_30day} per enrollee
+# Built from each enrollee's assigned disease cohorts.
+# ---------------------------------------------------------------------------
+ENROLLEE_MEDICATIONS: dict[str, list[dict]] = {
+    e["id"]: [
+        med
+        for cohort_id in e["disease_cohorts"]
+        for med in _COHORT_DRUGS.get(cohort_id, [])
+    ]
+    for e in ENROLLEES
+}
 
 # ---------------------------------------------------------------------------
 # ACUTE ORDERS (7)
