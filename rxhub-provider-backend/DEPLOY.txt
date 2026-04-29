@@ -1,0 +1,116 @@
+================================================================
+ LEADWAY RXHUB — BACKEND DEPLOYMENT PACKAGE
+ For: Azure App Service (Linux, Python 3.11)
+================================================================
+
+WHAT'S IN THIS ZIP
+──────────────────
+  app/              — the FastAPI application source
+  requirements.txt  — Python dependencies (Azure installs these)
+  .env              — environment variables (FILL THIS IN, see below)
+  startup.txt       — the Azure startup command
+  seed_provider.py  — optional admin seeder (you can ignore this)
+  DEPLOY.txt        — this file
+
+================================================================
+ DEPLOYMENT — 3 STEPS
+================================================================
+
+STEP 1 — FILL IN .env
+─────────────────────
+Open the .env file in this folder. Every line that says
+REPLACE_WITH_* needs a real value. The project owner has sent you
+the actual values via secure channel. Paste them in, save the file.
+
+The most important ones:
+  • JWT_SECRET          (64-char random string — owner provides)
+  • DATABASE_URL        (you build this after creating PostgreSQL)
+  • PUBLIC_BASE_URL     (your App Service URL after deployment)
+  • CORS_ORIGINS        (your frontend URL after deployment)
+  • PROGNOSIS_*         (Leadway HMO credentials — owner provides)
+  • WELLAHEALTH_*       (WellaHealth credentials — owner provides)
+  • WHATSAPP_API_KEY    (owner provides)
+  • ADMIN_BOOTSTRAP_*   (owner provides)
+  • EMBED_SHARED_SECRET (owner provides)
+
+
+STEP 2 — CREATE THE AZURE RESOURCES
+───────────────────────────────────
+In the Azure portal, create these three things (in this order):
+
+  2a. Azure Database for PostgreSQL Flexible Server
+      - Version: 16
+      - Tier: Burstable B1ms (cheapest)
+      - Admin username: rxhubadmin
+      - Admin password: (generate strong one, write it down)
+      - Networking: allow public access from Azure services
+      - After creation, go to Databases → Add → name: "rxhub"
+      - Build your DATABASE_URL like:
+        postgresql://rxhubadmin:YOUR_PASSWORD@YOUR_SERVER.postgres.database.azure.com:5432/rxhub
+      - Paste it into .env
+
+  2b. Azure App Service
+      - Runtime: Python 3.11 on Linux
+      - Tier: B1 Basic or higher
+      - Startup Command (paste EXACTLY from startup.txt):
+        pip install -r requirements.txt && uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+  2c. (Optional) Azure Cache for Redis — skip for now
+
+
+STEP 3 — UPLOAD THIS FOLDER
+───────────────────────────
+Option A — Azure CLI (easiest):
+    zip -r backend.zip .
+    az webapp deployment source config-zip \
+        --resource-group rg-rxhub-prod \
+        --name rxhub-api-prod \
+        --src backend.zip
+
+Option B — VS Code "Azure App Service" extension:
+    Right-click the App Service → Deploy to Web App →
+    pick this folder.
+
+Option C — FTPS (last resort):
+    App Service → Deployment Center → FTPS credentials.
+    Upload every file in this folder to /site/wwwroot/
+
+
+STEP 4 — SET ENVIRONMENT VARIABLES IN AZURE
+───────────────────────────────────────────
+IMPORTANT: Uploading .env with the code works, but Azure's
+preferred way is to set each variable in the portal:
+
+    App Service → Settings → Configuration → Application settings
+    → + New application setting (once per line in .env)
+
+Do this for EVERY line in .env. Save. The app auto-restarts.
+This keeps secrets out of the uploaded code.
+
+
+STEP 5 — VERIFY
+───────────────
+Open:  https://YOUR-APP-SERVICE.azurewebsites.net/health
+Should return:  {"status":"ok"}
+
+If not, check App Service → Log stream for the error.
+
+
+================================================================
+ COMMON ISSUES
+================================================================
+
+"502 Bad Gateway" after deployment
+  → Startup Command wrong. Re-check Step 2b.
+
+"Connection refused" on database
+  → DATABASE_URL wrong, OR PostgreSQL firewall blocking App Service.
+    In PostgreSQL → Networking, tick "Allow public access from any
+    Azure service within Azure to this server".
+
+"JWT_SECRET too short"
+  → Must be at least 32 characters. Generate with:
+    python3 -c "import secrets; print(secrets.token_urlsafe(48))"
+
+"Module not found" errors
+  → pip install didn't run. Re-check the startup command.
