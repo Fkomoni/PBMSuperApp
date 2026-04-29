@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Leadway RxHub · Provider Portal</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles/tokens.css" />
+  <link rel="stylesheet" href="styles/app.css" />
+  <link rel="stylesheet" href="styles/rxhub.css" />
+  <link rel="stylesheet" href="styles/provider.css" />
+  <!-- config.js (one line: window.__API_BASE__ = "..."). Edit for each deploy. -->
+  <script src="config.js"></script>
+  <script>
+    // Fallback if config.js didn't set anything (local dev against port 8000).
+    window.__API_BASE__ = window.__API_BASE__ || "http://localhost:8000/api/v1";
+  </script>
+</head>
+<body class="rxhub">
+  <div id="rx-root"></div>
+
+  <!-- Vendor scripts pinned to exact versions via CDN.
+       To self-host instead: run vendor/download-vendor.sh, commit the files,
+       and swap these tags for the vendor/ paths in index.html. -->
+  <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+  <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+
+  <script type="text/babel" src="src/rx/rxhub-ui.jsx"></script>
+  <script type="text/babel" src="src/rx/provider-api.js"></script>
+  <script type="text/babel" src="src/rx/provider-login.jsx"></script>
+  <script type="text/babel" src="src/rx/provider-shell.jsx"></script>
+  <script type="text/babel" src="src/rx/provider-dashboard.jsx"></script>
+  <script type="text/babel" src="src/rx/provider-enrollee.jsx"></script>
+  <script type="text/babel" src="src/rx/provider-new-request.jsx"></script>
+  <script type="text/babel" src="src/rx/provider-requests.jsx"></script>
+  <script type="text/babel" src="src/rx/provider-admin.jsx"></script>
+  <script type="text/babel" src="src/rx/provider-main.jsx"></script>
+</body>
+</html>

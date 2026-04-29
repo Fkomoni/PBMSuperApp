@@ -13,7 +13,7 @@ a DB, API, and static frontend.
 ```
 PBMSuperApp/
 ├─ render.yaml                       # One-click Render blueprint (DB + API + static site)
-├─ frontend/                         # Static React-via-Babel app
+├─ rxhub-provider-frontend/                         # Static React-via-Babel app
 │  ├─ index.html                     # Loads config.js → backend URL
 │  ├─ config.js                      # EDIT per environment: window.__API_BASE__ = "..."
 │  ├─ styles/
@@ -29,7 +29,7 @@ PBMSuperApp/
 │  │  ├─ provider-requests.jsx       # List + tracking drawer
 │  │  └─ provider-main.jsx           # Router
 │  └─ serve.py                       # `python serve.py 5173` for local dev
-└─ backend/                           # FastAPI + SQLAlchemy
+└─ rxhub-provider-backend/                           # FastAPI + SQLAlchemy
    ├─ requirements.txt
    ├─ .env.example
    ├─ seed_provider.py               # CLI to create/reset a provider account
@@ -85,12 +85,12 @@ All endpoints except `/login` and `/providers/register` require
 | Hormonal · Cancer · Autoimmune · Fertility | Lagos | Leadway PBM WhatsApp #1 |
 | Hormonal · Cancer · Autoimmune · Fertility | Outside Lagos | Leadway PBM WhatsApp #2 |
 
-Matrix lives in `backend/app/core/routing.py` (backend enforcement) and
-`frontend/src/rx/provider-new-request.jsx::previewRoute` (step-4 preview).
+Matrix lives in `rxhub-provider-backend/app/core/routing.py` (backend enforcement) and
+`rxhub-provider-frontend/src/rx/provider-new-request.jsx::previewRoute` (step-4 preview).
 
 ## ICD-10 diagnosis catalog
 
-Embedded in `backend/app/services/icd10.py` — ~250 standard ICD-10 codes
+Embedded in `rxhub-provider-backend/app/services/icd10.py` — ~250 standard ICD-10 codes
 covering infectious, neoplasms, endocrine/metabolic (incl. all common diabetes
 codes), mental health, neurology, circulatory, respiratory, digestive, skin,
 musculoskeletal, renal, obstetrics, symptoms (R-codes), and Z-codes.
@@ -102,7 +102,7 @@ from a CSV into a `diagnoses` table.
 
 ```bash
 # 1. Backend
-cd backend
+cd rxhub-provider-backend
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env   # edit if you want Google/Prognosis/Wella keys
@@ -110,12 +110,12 @@ python seed_provider.py doctor@clinic.com "Dr Jane Doe" "somePw123!"
 uvicorn app.main:app --reload --port 8000
 
 # 2. Frontend (new terminal)
-cd frontend
+cd rxhub-provider-frontend
 python serve.py 5173
 ```
 
 Open <http://localhost:5173>, click **Sign in**, use `doctor@clinic.com` /
-`somePw123!`. `frontend/config.js` defaults to `http://localhost:8000/api/v1`
+`somePw123!`. `rxhub-provider-frontend/config.js` defaults to `http://localhost:8000/api/v1`
 when run locally.
 
 ## Deploying to Render (one click from `render.yaml`)
@@ -135,7 +135,7 @@ when run locally.
    python seed_provider.py doctor@clinic.com "Dr Jane Doe" "somePw123!"
    ```
    Or hit `POST /api/v1/providers/register` once, then gate the endpoint.
-6. Edit `frontend/config.js` so `window.__API_BASE__` points at the deployed
+6. Edit `rxhub-provider-frontend/config.js` so `window.__API_BASE__` points at the deployed
    API (`https://rxhub-provider-api.onrender.com/api/v1`), push, and the
    static site redeploys automatically.
 7. Update `CORS_ORIGINS` on the API service to the static site's URL (e.g.
@@ -155,7 +155,7 @@ Click **Sign in**, enter the email + password set by the PBM admin (via
 
 ## Environment variables the backend reads
 
-See `backend/.env.example`. Summary:
+See `rxhub-provider-backend/.env.example`. Summary:
 
 | Variable | Purpose |
 | --- | --- |
@@ -176,7 +176,7 @@ Two modes are supported out of the box:
 ### 1. Direct login (standalone portal)
 
 `POST /api/v1/login` proxies to Prognosis `ProviderLogIn` via
-`backend/app/services/prognosis.py`. On success we **upsert** a local
+`rxhub-provider-backend/app/services/prognosis.py`. On success we **upsert** a local
 `providers` row from the Prognosis response and mint an 8-hour JWT. Providers
 never have a password stored here — Prognosis is the source of truth.
 
@@ -224,9 +224,9 @@ the Prognosis session-verify endpoint (one-line change in
 
 1. **Prognosis field mapping** — confirm the three adapter points above and
    I'll trim the guesswork.
-2. **Prognosis enrollee lookup** — `backend/app/api/lookup.py::enrollee` is a
+2. **Prognosis enrollee lookup** — `rxhub-provider-backend/app/api/lookup.py::enrollee` is a
    stub. Replace with an httpx call to `settings.prognosis_base_url`.
-3. **WellaHealth tariff feed** — `backend/app/api/medications.py::search` is
+3. **WellaHealth tariff feed** — `rxhub-provider-backend/app/api/medications.py::search` is
    a stub. Add a `drug_master` table (or cache) and refresh from WellaHealth.
 4. **WhatsApp dispatch** — on `POST /medication-requests` success, fire a
    message to the WhatsApp bot using the channel from `core/routing.py`.
