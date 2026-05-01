@@ -2,6 +2,122 @@
    Leadway RxHub — provider-specific additions (layered on rxhub.css)
    ========================================================== */
 
+/* Embed-friendly shell — horizontal top nav, no sidebar.
+   Designed to sit inside an iframe in the Leadway provider portal so
+   the experience reads as a single integrated module. */
+.pv-shell {
+  min-height: 100vh;
+  background: var(--rx-bg, #f7f5f2);
+  display: flex;
+  flex-direction: column;
+}
+
+.pv-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 18px;
+  background: #ffffff;
+  border-bottom: 1px solid var(--rx-border, #e9e6e0);
+  flex-wrap: wrap;
+}
+
+.pv-topbar__nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.pv-topbar__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--rx-ink, #2b2b2b);
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease, color .15s ease;
+  white-space: nowrap;
+}
+.pv-topbar__btn:hover { background: rgba(0, 0, 0, .04); }
+.pv-topbar__btn.is-on {
+  background: rgba(225, 6, 0, .08);
+  color: var(--rx-red, #e10600);
+  border-color: rgba(225, 6, 0, .22);
+}
+.pv-topbar__btn.is-admin {
+  color: var(--rx-red, #e10600);
+}
+.pv-topbar__btn.is-admin.is-on {
+  background: rgba(225, 6, 0, .12);
+}
+
+.pv-topbar__user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-left: 12px;
+  border-left: 1px solid var(--rx-border, #e9e6e0);
+  flex-shrink: 0;
+}
+.pv-topbar__name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--rx-ink, #2b2b2b);
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pv-topbar__signout {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: transparent;
+  border: 1px solid var(--rx-border, #e9e6e0);
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--rx-muted, #6c6c6c);
+  cursor: pointer;
+}
+.pv-topbar__signout:hover {
+  background: rgba(0, 0, 0, .04);
+  color: var(--rx-ink, #2b2b2b);
+}
+
+.pv-shell__page {
+  flex: 1;
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 18px;
+}
+
+@media (max-width: 720px) {
+  .pv-topbar { padding: 8px 12px; gap: 10px; }
+  .pv-topbar__btn { padding: 7px 10px; font-size: 12.5px; }
+  .pv-topbar__btn span { display: none; }
+  .pv-topbar__btn.is-on span { display: inline; }
+  .pv-topbar__name { display: none; }
+  .pv-topbar__signout span { display: none; }
+  .pv-shell__page { padding: 12px; }
+}
+
+
 /* Stepper */
 .pv-steps {
   display: flex;

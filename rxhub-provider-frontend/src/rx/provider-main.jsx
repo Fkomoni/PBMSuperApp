@@ -207,31 +207,8 @@ function ProviderApp() {
 
   return (
     <ProviderShell session={session} onSignOut={onSignOut} page={page} onNav={go}>
-      <PageTabs session={session} page={page} onNav={go} />
       {body}
     </ProviderShell>
-  );
-}
-
-function PageTabs({ session, page, onNav }) {
-  const tabs = [
-    { key: "new",       label: "New Rx Request" },
-    { key: "requests",  label: "Request History" },
-  ];
-  if (session?.role === "admin") {
-    tabs.push({ key: "admin", label: "Review Queue" });
-    tabs.push({ key: "reports", label: "Reports" });
-  }
-  return (
-    <div className="pv-tabs">
-      {tabs.map(t => (
-        <button key={t.key}
-          className={`pv-tab ${page === t.key ? "is-on" : ""}`}
-          onClick={() => onNav(t.key)}>
-          {t.label}
-        </button>
-      ))}
-    </div>
   );
 }
 
