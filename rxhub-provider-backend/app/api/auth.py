@@ -140,7 +140,8 @@ async def login(request: Request, body: LoginIn, db: Session = Depends(get_db)):
        On success, we upsert a local `providers` row so subsequent logins
        can take the fast local path.
     """
-    email = body.email.lower()
+    email = body.email.strip().lower()
+    email_raw = body.email.strip()  # preserve original casing for Prognosis
     logger.info("login attempt: %s", _mask_email(email))
 
     # Reject early if the account is locked (too many recent failures).
@@ -159,7 +160,7 @@ async def login(request: Request, body: LoginIn, db: Session = Depends(get_db)):
     # 2. Prognosis (real providers)
     if settings.prognosis_base_url:
         try:
-            pp = await prognosis.provider_login(email, body.password)
+            pp = await prognosis.provider_login(email_raw, body.password)
             p = _upsert_from_prognosis(db, pp)
             _clear_failures(email, db)
             logger.info("login OK via Prognosis: %s", _mask_email(email))
@@ -322,6 +323,7 @@ async def embed_login(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid embed secret")
 
     email = body.email.strip().lower()
+    email_raw = body.email.strip()  # preserve original casing for Prognosis
     if _is_locked(email, db):
         audit.warning("event=embed_login result=locked actor=%s", _mask_email(email))
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
@@ -342,7 +344,7 @@ async def embed_login(
             _record_failure(email, db)
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
         try:
-            pp = await prognosis.provider_login(email, body.password)
+            pp = await prognosis.provider_login(email_raw, body.password)
         except PrognosisAuthError:
             _record_failure(email, db)
             audit.warning("event=embed_login result=fail actor=%s", _mask_email(email))

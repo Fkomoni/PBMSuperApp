@@ -305,36 +305,45 @@ def _looks_like_failure_payload(data: Any) -> str | None:
 
 def _has_real_provider_data(data: Any) -> bool:
     """Only treat a 200-OK Prognosis response as a successful login when
-    it carries at least one hard identifier AND a name field. Prognosis
-    sometimes 200s with an empty dict on failure — accepting that would
-    let random credentials mint new "providers" keyed on their input
-    email (e.g. user 'ewrw2' materialising from 'ewrw2@anything.com').
+    it carries at least one hard identifier. Prognosis sometimes 200s
+    with an empty dict on failure — accepting that would let random
+    credentials mint new "providers" keyed on their input email.
+
+    The ProviderNetwork/ProviderLogIn endpoint returns ASP.NET Identity
+    rows (Id + UserName + Email + PasswordHash, no name fields), wrapped
+    in {"status": 200, "result": [{...}]}. We unwrap dict OR list
+    envelopes, then accept any row that has both an ID and an email —
+    every successful response from this endpoint is a provider.
     """
     if not isinstance(data, dict):
         return False
-    # Unwrap envelopes first
+    # Unwrap envelopes — dict shape OR list shape (take the first element).
     for k in ("data", "Data", "provider", "Provider", "result", "Result"):
-        if isinstance(data.get(k), dict):
-            data = data[k]
+        v = data.get(k)
+        if isinstance(v, dict):
+            data = v
+            break
+        if isinstance(v, list) and v and isinstance(v[0], dict):
+            data = v[0]
             break
     has_id = any(data.get(k) for k in (
         "ProviderId", "ProviderID", "provider_id", "Id", "id", "PrognosisId",
         "ProviderCode", "UserId",
     ))
-    has_name = any(data.get(k) for k in (
-        "FirstName", "firstname", "LastName", "lastname", "Surname",
-        "FullName", "Name", "ProviderName",
-    ))
-    has_email = any(data.get(k) for k in ("Email", "email"))
-    return (has_id or has_email) and has_name
+    has_email = any(data.get(k) for k in ("Email", "email", "UserName", "username"))
+    return has_id and has_email
 
 
 def _provider_from_response(data: dict, fallback_email: str) -> PrognosisProvider:
-    # Unwrap envelopes
+    # Unwrap envelopes (dict OR list — list takes the first element).
     if isinstance(data, dict):
         for k in ("data", "Data", "provider", "Provider", "result", "Result"):
-            if isinstance(data.get(k), dict):
-                data = data[k]
+            v = data.get(k)
+            if isinstance(v, dict):
+                data = v
+                break
+            if isinstance(v, list) and v and isinstance(v[0], dict):
+                data = v[0]
                 break
     first = data.get("FirstName") or data.get("firstname") or ""
     last  = data.get("LastName")  or data.get("lastname")  or data.get("Surname") or ""
@@ -343,7 +352,8 @@ def _provider_from_response(data: dict, fallback_email: str) -> PrognosisProvide
         data.get("ProviderId") or data.get("ProviderID") or data.get("provider_id")
         or data.get("Id") or data.get("id")
     )
-    email = data.get("Email") or data.get("email") or fallback_email
+    # Email may live under Email/email or UserName (Prognosis uses UserName=email).
+    email = data.get("Email") or data.get("email") or data.get("UserName") or data.get("username") or fallback_email
     return PrognosisProvider(
         provider_id=str(pid or email.lower()),
         name=str(full or fallback_email.split("@")[0]),
@@ -351,7 +361,8 @@ def _provider_from_response(data: dict, fallback_email: str) -> PrognosisProvide
         prognosis_id=str(data.get("PrognosisId") or pid) if pid else None,
         facility=data.get("Facility") or data.get("HospitalName") or data.get("ProviderLocation"),
         phone=data.get("Phone") or data.get("Mobile") or data.get("PhoneNumber"),
-        extra={k: v for k, v in data.items() if k.lower() not in ("password", "token")},
+        extra={k: v for k, v in data.items()
+               if k.lower() not in ("password", "passwordhash", "token", "securitystamp")},
     )
 
 
@@ -359,9 +370,14 @@ async def provider_login(email: str, password: str) -> PrognosisProvider:
     if not settings.prognosis_base_url:
         raise PrognosisAuthError("Prognosis base URL is not configured")
 
-    status_code, data = await _bearer_request(
-        "POST", LOGIN_PATH, body=_build_login_payload(email, password)
-    )
+    payload = _build_login_payload(email, password)
+    # Log the OUTGOING shape Prognosis sees — with the password masked so
+    # we can debug field-name + casing issues without leaking creds.
+    masked_pw = ("*" * len(password)) if password else ""
+    logger.info("ProviderLogIn → POST %s body=%s",
+                LOGIN_PATH, {**payload, "Password": masked_pw})
+
+    status_code, data = await _bearer_request("POST", LOGIN_PATH, body=payload)
     snippet = str(data)[:400]
     logger.info("ProviderLogIn %s → HTTP %s · body=%s", _mask_email(email), status_code, snippet)
 
